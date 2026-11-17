@@ -12,9 +12,7 @@ function watchConsole(page: Page) {
 
 async function expectHealthyInitialPage(page: Page) {
   await expect(page).toHaveTitle(/BolRelay/);
-  await expect(
-    page.getByRole('heading', { name: 'Afternoon dispatch', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dispatch handover', exact: true })).toBeVisible();
   await expect(page.getByTestId('incoming-transcript')).toBeVisible();
   await expect(page.getByTestId('item-NAGPUR')).toBeVisible();
   await expect(page.getByTestId('item-J1')).toHaveAttribute('data-status', 'contradiction');

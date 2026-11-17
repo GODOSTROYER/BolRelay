@@ -50,8 +50,12 @@ export function VoiceComposer({
   onExample,
 }: Props) {
   const [menu, setMenu] = useState(false);
+  const [languageFocus, setLanguageFocus] = useState(0);
   const [audioUrl, setAudioUrl] = useState('');
   const textArea = useRef<HTMLTextAreaElement>(null);
+  const languageButton = useRef<HTMLButtonElement>(null);
+  const languageOptions = useRef<(HTMLButtonElement | null)[]>([]);
+  const languageValues = Object.keys(LANGUAGE_LABELS) as Language[];
   const voice = useVoiceCapture(language, setText, (audio) => {
     setAudioUrl((prior) => {
       if (prior) URL.revokeObjectURL(prior);
@@ -68,6 +72,17 @@ export function VoiceComposer({
   useEffect(() => {
     if (scope) textArea.current?.focus();
   }, [scope]);
+  useEffect(() => {
+    if (menu) languageOptions.current[languageFocus]?.focus();
+  }, [menu, languageFocus]);
+  const openLanguages = () => {
+    setLanguageFocus(languageValues.indexOf(language));
+    setMenu(true);
+  };
+  const closeLanguages = () => {
+    setMenu(false);
+    languageButton.current?.focus();
+  };
   return (
     <section className="panel composer" aria-labelledby="composer-heading">
       <div className="composer-heading">
@@ -107,12 +122,20 @@ export function VoiceComposer({
         </span>
         <div className="language-control">
           <button
+            ref={languageButton}
             className="button button-small"
             type="button"
             aria-haspopup="listbox"
             aria-expanded={menu}
+            aria-controls={menu ? 'spoken-language-menu' : undefined}
             disabled={voice.recording || voice.starting}
-            onClick={() => setMenu(!menu)}
+            onClick={() => (menu ? closeLanguages() : openLanguages())}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                openLanguages();
+              }
+            }}
           >
             {LANGUAGE_LABELS[language]}
             <ChevronDown size={15} />
@@ -122,18 +145,46 @@ export function VoiceComposer({
               <button
                 className="menu-dismiss"
                 aria-label="Close language options"
-                onClick={() => setMenu(false)}
+                tabIndex={-1}
+                onClick={closeLanguages}
               />
-              <div className="language-menu" role="listbox" aria-label="Spoken language">
-                {Object.entries(LANGUAGE_LABELS).map(([value, label]) => (
+              <div
+                className="language-menu"
+                id="spoken-language-menu"
+                role="listbox"
+                aria-label="Spoken language"
+              >
+                {Object.entries(LANGUAGE_LABELS).map(([value, label], index) => (
                   <button
+                    ref={(node) => {
+                      languageOptions.current[index] = node;
+                    }}
                     key={value}
                     type="button"
                     role="option"
                     aria-selected={language === value}
+                    tabIndex={languageFocus === index ? 0 : -1}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        const direction = event.key === 'ArrowDown' ? 1 : -1;
+                        setLanguageFocus(
+                          (current) =>
+                            (current + direction + languageValues.length) % languageValues.length,
+                        );
+                      } else if (event.key === 'Home' || event.key === 'End') {
+                        event.preventDefault();
+                        setLanguageFocus(event.key === 'Home' ? 0 : languageValues.length - 1);
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault();
+                        closeLanguages();
+                      } else if (event.key === 'Tab') {
+                        window.setTimeout(() => setMenu(false), 0);
+                      }
+                    }}
                     onClick={() => {
                       setLanguage(value as Language);
-                      setMenu(false);
+                      closeLanguages();
                     }}
                   >
                     {label}
@@ -169,7 +220,7 @@ export function VoiceComposer({
             ? 'In your own words, what will you do with each parcel?'
             : 'Describe the actions, quantities, times, and anything that must stay on hold.'
         }
-        rows={5}
+        rows={4}
         maxLength={4000}
         disabled={busy}
         spellCheck={false}

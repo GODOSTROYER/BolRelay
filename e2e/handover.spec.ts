@@ -203,6 +203,76 @@ test('preserves malformed saved data and exposes deliberate recovery', async ({ 
   expect(await page.evaluate(() => localStorage.getItem('bolrelay.workspace.v1'))).toBe(original);
 });
 
+test('keeps mobile navigation and language selection usable by keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const navigation = page.locator('aside[aria-label="Workspace navigation"]');
+  const toggle = page.getByRole('button', {
+    name: 'Open navigation',
+    exact: true,
+    includeHidden: true,
+  });
+  await expect(navigation).toBeHidden();
+
+  // The closed drawer precedes this toggle in DOM order. Shift+Tab must skip it.
+  await toggle.focus();
+  await page.keyboard.press('Shift+Tab');
+  expect(await navigation.evaluate((element) => element.contains(document.activeElement))).toBe(
+    false,
+  );
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  const firstLink = navigation.getByRole('link', { name: 'BolRelay', exact: true });
+  const settings = navigation.getByRole('button', { name: 'Settings & privacy', exact: true });
+  await expect(firstLink).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(settings).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(firstLink).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(navigation).toBeHidden();
+  await expect(toggle).toBeFocused();
+
+  await page.keyboard.press('Enter');
+  await expect(navigation).toBeVisible();
+  await settings.click();
+  const dialog = page.getByRole('dialog', { name: 'Settings & privacy', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(navigation).toBeHidden();
+  await expect(dialog.getByRole('button', { name: 'Close dialog', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  const localMode = dialog.getByRole('radio', { name: /Local rule checks/ });
+  await expect(localMode).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(localMode).toBeChecked();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  const english = page.getByRole('button', { name: 'English', exact: true });
+  await english.focus();
+  await page.keyboard.press('ArrowDown');
+  const languages = page.getByRole('listbox', { name: 'Spoken language', exact: true });
+  const englishOption = languages.getByRole('option', { name: 'English', exact: true });
+  const hindiOption = languages.getByRole('option', { name: 'हिन्दी', exact: true });
+  await expect(englishOption).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(languages.getByRole('option', { name: 'मराठी', exact: true })).toBeFocused();
+  await expect(englishOption).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Home');
+  await expect(englishOption).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(hindiOption).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(languages).toHaveCount(0);
+  const hindi = page.getByRole('button', { name: 'हिन्दी', exact: true });
+  await expect(hindi).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(hindiOption).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(languages).toHaveCount(0);
+  await expect(hindi).toBeFocused();
+});
+
 test('keeps the typed workflow available when microphone permission is denied (mocked denial)', async ({
   page,
 }) => {

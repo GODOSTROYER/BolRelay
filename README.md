@@ -52,7 +52,7 @@ The example starts with the incoming person saying:
 > I will send all ten parcels after three.
 
 1. Inspect the two held Joshi items and their source evidence.
-2. Use **Corrected read-back**, or enter: “I will send eight Nagpur parcels after 3 PM. I will hold two Joshi parcels until the address is confirmed.”
+2. Use **A correct read-back**, or enter: “I will send eight Nagpur parcels after 3 PM. I will hold two Joshi parcels until the address is confirmed.”
 3. Check the read-back and confirm the current items.
 4. Release **J1** after explicitly confirming its prerequisite.
 5. Observe that J1 needs a fresh read-back while J2 remains held and its valid confirmation is preserved.
@@ -100,6 +100,7 @@ The adapter has request-size bounds, method/origin checks, a per-process request
 npm run typecheck
 npm test
 npm run build
+npm run test:production
 npx playwright install chromium
 npm run test:e2e
 ```

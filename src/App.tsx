@@ -107,6 +107,7 @@ export default function App() {
     requiresToken: false,
   });
   const importInput = useRef<HTMLInputElement>(null);
+  const navigationPanel = useRef<HTMLElement>(null);
   const workspaceRef = useRef(handovers);
   workspaceRef.current = handovers;
   const activeIdRef = useRef(activeId);
@@ -153,11 +154,56 @@ export default function App() {
   }, [toast]);
   useEffect(() => {
     if (!mobileNav) return;
+    const viewport = window.matchMedia('(max-width: 760px)');
+    if (!viewport.matches) {
+      setMobileNav(false);
+      return;
+    }
+    const previous = document.activeElement as HTMLElement | null;
+    const priorOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusables = () =>
+      Array.from(
+        navigationPanel.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not(:disabled), [tabindex="0"]',
+        ) ?? [],
+      ).filter((element) => element.getClientRects().length > 0);
+    focusables()[0]?.focus();
     const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileNav(false);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMobileNav(false);
+      }
+      if (event.key === 'Tab') {
+        const elements = focusables();
+        const first = elements[0];
+        const last = elements.at(-1);
+        if (!first) {
+          event.preventDefault();
+        } else if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (
+          !event.shiftKey &&
+          (document.activeElement === last ||
+            !navigationPanel.current?.contains(document.activeElement))
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    const resize = () => {
+      if (!viewport.matches) setMobileNav(false);
     };
     document.addEventListener('keydown', key);
-    return () => document.removeEventListener('keydown', key);
+    viewport.addEventListener('change', resize);
+    return () => {
+      document.body.style.overflow = priorOverflow;
+      document.removeEventListener('keydown', key);
+      viewport.removeEventListener('change', resize);
+      if (previous?.isConnected) previous.focus();
+    };
   }, [mobileNav]);
 
   const commit = (id: string, transform: (state: HandoverState) => HandoverState): boolean => {
@@ -398,13 +444,19 @@ export default function App() {
           onClick={() => setMobileNav(false)}
         />
       )}
-      <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`} aria-label="Workspace navigation">
+      <aside
+        ref={navigationPanel}
+        id="workspace-navigation"
+        className={`sidebar ${mobileNav ? 'is-open' : ''}`}
+        aria-label="Workspace navigation"
+      >
         <a
           className="brand"
           href="#"
           onClick={(event) => {
             event.preventDefault();
             setView('handover');
+            setMobileNav(false);
           }}
         >
           <AudioLines size={34} strokeWidth={2.2} />
@@ -447,7 +499,10 @@ export default function App() {
           <button
             type="button"
             aria-label="Add handover"
-            onClick={() => setDialog({ kind: 'new' })}
+            onClick={() => {
+              setMobileNav(false);
+              setDialog({ kind: 'new' });
+            }}
           >
             <Plus size={16} />
           </button>
@@ -485,7 +540,13 @@ export default function App() {
           Load example
         </button>
         <div className="sidebar-footer">
-          <button type="button" onClick={() => setDialog({ kind: 'settings' })}>
+          <button
+            type="button"
+            onClick={() => {
+              setMobileNav(false);
+              setDialog({ kind: 'settings' });
+            }}
+          >
             <Settings2 size={17} />
             Settings & privacy
           </button>
@@ -496,13 +557,14 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main-content" id="main-content">
+      <main className="main-content" id="main-content" inert={mobileNav}>
         <header className="page-header">
           <div className="heading-group">
             <button
               type="button"
               className="icon-button mobile-menu"
               aria-label="Open navigation"
+              aria-controls="workspace-navigation"
               aria-expanded={mobileNav}
               onClick={() => setMobileNav(true)}
             >
@@ -914,19 +976,21 @@ export default function App() {
               </span>
             </label>
             {capabilities.modelConfigured && capabilities.requiresToken && mode === 'model' && (
-              <label className="field">
-                Application access token
+              <div className="field">
+                <label htmlFor="application-access-token">Application access token</label>
                 <input
+                  id="application-access-token"
+                  aria-describedby="application-access-token-help"
                   type="password"
                   autoComplete="off"
                   value={accessToken}
                   onChange={(event) => setAccessToken(event.target.value)}
                 />
-                <span className="field-help">
+                <span id="application-access-token-help" className="field-help">
                   Kept only in this tab’s memory. This is the application token, never a
                   model-provider API key.
                 </span>
-              </label>
+              </div>
             )}
           </section>
           <section className="settings-section">
