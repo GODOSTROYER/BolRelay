@@ -4,7 +4,7 @@ Updated 17 November 2026. This checklist tracks the implementation wave followin
 
 ## Current checkpoint
 
-The core repairs and new recipient workflow are implemented. The integrated local gate passes: 202 automated tests, TypeScript, and production bundling. GitHub Chromium and production HTTP verification are next. Do not read an implementation checkbox as evidence of real microphone quality, live model quality, or benefit to workers.
+The core repairs and new recipient workflow are implemented and published on `main`. [Code commit 6e95b87](https://github.com/GODOSTROYER/BolRelay/commit/6e95b8770086a8c3a8ffdfb3d88bf961d161ebf0) passed [GitHub Actions run 44083662840](https://github.com/GODOSTROYER/BolRelay/actions/runs/44083662840): 202 automated tests, all 28 Chromium cases, TypeScript, production bundling, and the production HTTP smoke test. Thirteen distinct screenshots have visual-review coverage, including Hindi/Marathi and the mobile text fallback. Do not read an implementation checkbox as evidence of real microphone quality, live model quality, or benefit to workers.
 
 ## Implemented
 
@@ -22,16 +22,17 @@ The core repairs and new recipient workflow are implemented. The integrated loca
 - [x] Add a focused recipient view, per-item clarification, and before/after changed-instruction receipt.
 - [x] Save independent outgoing/incoming languages; localize critical English, Hindi, and Marathi recipient controls.
 - [x] Add matching-language text-to-speech with visible unavailability and failure states.
+- [x] Provide current instructions as expandable text inside the guided view when reading is preferred or spoken playback is unavailable.
 - [x] Make handover export/import limits consistent and add validated whole-workspace backup preview and restore.
 
 ## Release verification
 
 - [x] Run focused domain, model-boundary, capture/playback, source-integrity, draft, and persistence regressions.
 - [x] Finish the final integrated type check, unit suite, and production bundle after the migration review: 202 tests across 10 files passed.
-- [ ] Pass the production HTTP smoke test and complete Chromium suite in GitHub Actions.
-- [ ] Inspect desktop, narrow-screen, Hindi, and Marathi screenshots from that exact application build.
-- [ ] Record the verified code commit, run, counts, and evidence limits in `VALIDATION.md`.
-- [ ] Publish the verified repository checkpoint.
+- [x] Pass the production HTTP smoke test and complete Chromium suite in GitHub Actions: 28 passed, no failures or skipped cases, zero external model calls in the smoke test.
+- [x] Inspect desktop, narrow-screen, Hindi, and Marathi screenshots from that exact application build: seven final changed/new PNGs inspected; six final PNGs verified byte-identical to their inspected predecessors.
+- [x] Record the verified code commit, run, counts, and evidence limits in `VALIDATION.md`.
+- [x] Publish the verified repository checkpoint on `main` through PR #1's verified commits.
 
 ## Remaining work, ranked by submission impact
 
