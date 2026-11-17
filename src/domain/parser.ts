@@ -82,6 +82,11 @@ export function normalizeText(text: string): string {
     .trim();
 }
 
+/** Normalisation for interpreted values only; evidence keeps original text and offsets. */
+export function normalizeNumbers(text: string): string {
+  return normalizeText(text).replace(wordPattern, (word) => numberWords[word]!);
+}
+
 export function canonicalUnit(unit: string): string {
   const value = normalizeText(unit);
   if (/^(parcels?|packages?|पार्सल|पार्सल्स|पैकेट|पॅकेट)$/.test(value)) return 'parcel';
@@ -97,7 +102,7 @@ export function canonicalCondition(condition: string): string {
   if (/\b(?:not|never|without|unconfirmed)\b|नहीं|नाही/iu.test(value)) return value;
   if (
     /(address|पता|पते|पत्ता|पत्त्याची)/u.test(value) &&
-    /(confirm|verif|check|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u.test(value)
+    /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u.test(value)
   )
     return 'address confirmed';
   return value
@@ -121,14 +126,64 @@ const prohibitedDispatch =
 const gateMarker =
   /\b(?:until|unless|once|only after|after the address|when the address)\b|जब\s*तक|होने\s*तक|पुष्टि\s*के\s*बाद|जोपर्यंत|होईपर्यंत|पुष्टी\s*झाल्यावर|पत्ता\s*कन्फर्म\s*झाल्यावर/iu;
 
+export function actionFromText(text: string): WorkAction | undefined {
+  const normal = normalizeText(text);
+  if (prohibitedDispatch.test(normal) || holdMarker.test(normal)) return 'hold';
+  if (dispatchMarker.test(normal)) return 'dispatch';
+  if (packMarker.test(normal)) return 'pack';
+  if (collectMarker.test(normal)) return 'collect';
+  return undefined;
+}
+
+/** A selected item supplies a pronoun's referent, never an unrecognised name. */
+function hasOnlyImplicitObject(text: string): boolean {
+  const objectPart = normalizeNumbers(text).split(
+    /\b(?:until|unless|once|only after|after|at|past|assigned to|owner is|handled by)\b|जब\s*तक|जोपर्यंत|पता|पते|पत्ता|पत्त्याची|पुष्टि|पुष्टी/iu,
+  )[0]!;
+  const rest = objectPart
+    .replace(
+      /\b(?:i|we|will|shall|am|are|going|to|intend|plan|please|this|that|these|those|it|them|the|a|an|my|our|one|all|both|only|now|immediately|here|aside|on|for|and|but|then)\b/giu,
+      ' ',
+    )
+    .replace(
+      /\b(?:i'll|we'll|send|dispatch|release|ship|leave|hold|wait|keep|retain|stay|remain|pack|prepare|wrap|collect|pick|up)\b/giu,
+      ' ',
+    )
+    .replace(/\b(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs)\b/giu, ' ')
+    .replace(
+      /पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे|(?:रोक|रख|थांब|ठेव|भेज|पाठव|सोड|पैक|पॅक|उठा)[\p{L}\p{M}]*|मैं|हम|मी|आम्ही|यह|ये|वह|इसे|इन्हें|हा|हे|ह्या|ते|त्यांना|आता|अभी/gu,
+      ' ',
+    )
+    .replace(/[\d\s.,!?;:'"’‘-]+/gu, '');
+  return rest.length === 0;
+}
+
+function unknownIdentifier(text: string, items: HandoverItem[]): boolean {
+  const tokens =
+    text.match(/(?<![\p{L}\p{N}])[\p{L}]+[-_]?\d+[\p{L}\p{N}_-]*(?![\p{L}\p{N}])/gu) ?? [];
+  return tokens.some(
+    (token) =>
+      !items.some((item) =>
+        [item.id, item.label, ...item.aliases].some((name) => hasToken(normalizeText(name), token)),
+      ),
+  );
+}
+
 function splitClauses(text: string): Evidence[] {
   // Work only with original-string offsets. Number normalisation never changes evidence.
   const separator =
-    /[.!?;।\n]+|,(?!\s*(?:sorry|no\b|actually|i mean|माफ|नाही|नहीं))|\b(?:and|but)\b(?=\s+(?:(?:i|we|they)\s+(?:will\s+)?)?(?:send|dispatch|hold|keep|wait|pack|collect)\b)|\s(?:और|आणि|लेकिन|पण)\s(?=(?:मैं|हम|मी|आम्ही)\s)/giu;
+    /[.!?;।\n]+|,(?!\s*(?:sorry|no\b|actually|i mean|then\b|माफ|नाही|नहीं))|\b(?:and|but)\b(?=\s+(?:(?:i|we|they)\s+(?:will\s+)?)?(?:send|dispatch|release|ship|leave|hold|keep|wait|retain|pack|prepare|wrap|collect|pick\s+up)\b)|\s(?:और|आणि|लेकिन|पण)\s(?=(?:मैं|हम|मी|आम्ही)\s)/giu;
   const spans: Evidence[] = [];
   let previous = 0;
   for (const match of text.matchAll(separator)) {
     const end = match.index ?? 0;
+    if (match[0] === '.') {
+      const before = text.slice(0, end);
+      const after = text.slice(end + 1);
+      if (/\d$/.test(before) && /^\d/.test(after)) continue;
+      if (/\b[ap]$/i.test(before) && /^m\./i.test(after)) continue;
+      if (/\b[ap]\.m$/i.test(before)) continue;
+    }
     push(previous, end);
     previous = end + match[0].length;
   }
@@ -141,14 +196,16 @@ function splitClauses(text: string): Evidence[] {
   return spans;
 }
 
-function timeFromClause(
-  text: string,
-  items: HandoverItem[],
-): { time?: string; cleaned: string; ambiguous: boolean; unsupportedBefore: boolean } {
-  const clock = '(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm|a\\.m\\.|p\\.m\\.)?';
+export function timeFromClause(text: string): {
+  time?: string;
+  cleaned: string;
+  ambiguous: boolean;
+  unsupportedBefore: boolean;
+} {
+  const clock = '(\\d{1,2})(?::(\\d{2}))?\\s*(?:(am|pm|a\\.m\\.?|p\\.m\\.?)(?![\\p{L}\\p{N}]))?';
   const prefix = new RegExp(`\\b(?:after|not before|at|past)\\s+(?:exactly\\s+)?${clock}`, 'iu');
   const suffix = new RegExp(
-    `${clock}\\s*(?:बजे|वाजता|वाजल्यानंतर|वाजल्यानंतरच)?\\s*(?:के\\s*)?(?:बाद|नंतर)`,
+    `${clock}\\s*(?:(?:बजे|वाजता)?\\s*(?:के\\s*)?(?:बाद|नंतर)|वाजल्यानंतर(?:च)?)`,
     'iu',
   );
   const match = prefix.exec(text) ?? suffix.exec(text);
@@ -160,15 +217,15 @@ function timeFromClause(
   const cleaned = text.replace(match[0], ' ');
   if (hour > 23 || minute > 59 || (meridiem && (hour < 1 || hour > 12)))
     return { cleaned, ambiguous: true, unsupportedBefore };
+  const morning = /\b(?:morning|dawn)\b|सुबह|सवेरे|प्रातः|सकाळ/iu.test(text);
+  const afternoon = /\b(?:afternoon|evening)\b|दोपहर|दुपार|शाम|संध्याकाळ/iu.test(text);
+  if ((morning && afternoon) || (meridiem === 'pm' && morning) || (meridiem === 'am' && afternoon))
+    return { cleaned, ambiguous: true, unsupportedBefore };
   if (meridiem) hour = (hour % 12) + (meridiem === 'pm' ? 12 : 0);
-  else if (/दोपहर|दुपार|शाम|संध्याकाळ/iu.test(text) && hour < 12) hour += 12;
-  else if (hour > 0 && hour < 12) {
-    const candidates = [
-      ...new Set(items.map((item) => item.notBefore).filter((t): t is string => !!t)),
-    ].filter((t) => Number(t.slice(0, 2)) % 12 === hour && Number(t.slice(3)) === minute);
-    if (candidates.length === 1) hour = Number(candidates[0]!.slice(0, 2));
-    else return { cleaned, ambiguous: true, unsupportedBefore };
-  }
+  else if (morning && hour <= 12) hour %= 12;
+  else if (afternoon && hour <= 12) hour = (hour % 12) + 12;
+  else if (hour > 0 && hour <= 12 && !(match[1]!.length === 2 && match[2] !== undefined))
+    return { cleaned, ambiguous: true, unsupportedBefore };
   return {
     time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
     cleaned,
@@ -197,7 +254,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
   for (const span of splitClauses(text)) {
     const evidence = { ...span, utteranceId };
     const normal = normalizeText(span.text);
-    const numeric = normal.replace(wordPattern, (word) => numberWords[word]!);
+    const numeric = normalizeNumbers(normal);
     const explicitIds = input.items
       .filter((item) => hasToken(normal, item.id))
       .map((item) => item.id);
@@ -209,7 +266,18 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
           );
     const globalReference = targets.length === 0 && allMarker.test(normal);
     if (globalReference) targets = input.items;
-    if (targets.length === 0 && input.scopeItemIds?.length === 1) targets = scope;
+    if (unknownIdentifier(normal, input.items)) {
+      issue(
+        'UNKNOWN_OBJECT_IDENTIFIER',
+        'An explicit item identifier is not on this board. Name the intended item; the selected scope cannot replace a different ID.',
+        scope.map((item) => item.id),
+        'object',
+        evidence,
+      );
+      continue;
+    }
+    if (targets.length === 0 && input.scopeItemIds?.length === 1 && hasOnlyImplicitObject(normal))
+      targets = scope;
     if (targets.length === 0) {
       issue(
         'UNRECOGNISED_OBJECT',
@@ -233,12 +301,34 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'This reply also refers to items outside the selected clarification. Name the intended item or review the whole group.',
       );
 
-    let action: WorkAction | undefined;
-    if (prohibitedDispatch.test(normal)) action = 'hold';
-    else if (holdMarker.test(normal)) action = 'hold';
-    else if (dispatchMarker.test(normal)) action = 'dispatch';
-    else if (packMarker.test(normal)) action = 'pack';
-    else if (collectMarker.test(normal)) action = 'collect';
+    const action = actionFromText(normal);
+    const actionKinds = [
+      prohibitedDispatch.test(normal) || holdMarker.test(normal),
+      !prohibitedDispatch.test(normal) && dispatchMarker.test(normal),
+      packMarker.test(normal),
+      collectMarker.test(normal),
+    ].filter(Boolean).length;
+    const validHoldSequence =
+      action === 'hold' &&
+      gateMarker.test(normal) &&
+      /\b(?:until|unless)\b[^,;]+(?:,\s*)?(?:and\s+)?then\s+(?:send|dispatch|release|ship)\b(?:\s+(?:it|them|the parcels?|the packages?))?\s*$/iu.test(
+        normal,
+      );
+    const residualCommitment =
+      /\b(?:and|also|but|however|instead|then)\s+(?:(?:i|we|they)\s+(?:will\s+)?)?[\p{L}]+\s+(?:it|them|the|these|those)\b/iu.test(
+        normal,
+      );
+    if (
+      ((actionKinds > 1 || residualCommitment) && !validHoldSequence) ||
+      /\b(?:or|either|otherwise|but|however|instead)\b|(?<![\p{L}\p{M}])(?:या|किंवा|लेकिन|पण)(?![\p{L}\p{M}])/iu.test(
+        normal,
+      )
+    )
+      uncertain(
+        'action',
+        'COMPETING_ACTIONS',
+        'This reply contains competing or alternative actions. State one next action and its prerequisite explicitly.',
+      );
     if (!action)
       uncertain(
         'action',
@@ -297,7 +387,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly.',
       );
 
-    const clock = timeFromClause(numeric, targets);
+    const clock = timeFromClause(numeric);
     if (clock.ambiguous)
       uncertain('notBefore', 'AMBIGUOUS_TIME', 'Say the time with AM/PM or use a 24-hour time.');
     if (clock.unsupportedBefore)
@@ -312,6 +402,36 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       quantityText = quantityText.replace(
         new RegExp(`(?<![\\p{L}\\p{N}])${escape(normalizeText(item.id))}(?![\\p{L}\\p{N}])`, 'gu'),
         ' ',
+      );
+    if (
+      /\b(?:minus|negative)\s*\d|(?<![\p{L}\p{N}])[-−]\s*\d|(?:माइनस|ऋण|उणे)\s*\d/iu.test(
+        quantityText,
+      )
+    )
+      uncertain(
+        'quantity',
+        'NEGATIVE_QUANTITY',
+        'A negative quantity was heard. State a positive count; subtraction or removal requires a separate reviewed change.',
+      );
+    if (
+      /\b(?:about|roughly|around|approximately|approx|nearly|almost|at least|at most|more than|less than|up to|over|under)\b|लगभग|करीब|साधारण|अंदाजे|किमान|कमाल|कम\s*से\s*कम|जास्तीत\s*जास्त/iu.test(
+        quantityText,
+      )
+    )
+      uncertain(
+        'quantity',
+        'QUALIFIED_QUANTITY',
+        'The quantity is approximate or bounded rather than an exact count. State the exact quantity before confirming.',
+      );
+    if (
+      /\b(?:hundred|thousand|million|billion|lakh|lac|crore|dozens?|half|quarter)\b|(?<![\p{L}\p{M}])(?:सौ|हज़ार|हजार|लाख|करोड़|दर्जन|शंभर|कोटी|डझन|आधा|अर्धा|दीड|सव्वा|पाव)(?![\p{L}\p{M}])/iu.test(
+        quantityText,
+      )
+    )
+      uncertain(
+        'quantity',
+        'UNSUPPORTED_QUANTITY_EXPRESSION',
+        'This compound quantity needs an explicit numeral. Repeat the total count without a multiplier or fraction word.',
       );
     const amounts = [
       ...quantityText.matchAll(/(?<![\p{L}\p{N}])\d+(?:\.\d+)?(?![\p{L}\p{N}])/gu),
@@ -355,11 +475,14 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     if (gateMarker.test(normal)) {
       if (
         /(address|पता|पते|पत्ता|पत्त्याची)/u.test(normal) &&
-        /(confirm|verif|check|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u.test(normal)
+        /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u.test(normal)
       )
         condition = 'address confirmed';
       else {
-        const tail = /\b(?:until|unless|once|only after)\s+(.+)$/iu.exec(normal)?.[1];
+        const prerequisiteText = validHoldSequence
+          ? normal.replace(/(?:,\s*)?(?:and\s+)?then\s+(?:send|dispatch|release|ship)\b.*$/iu, '')
+          : normal;
+        const tail = /\b(?:until|unless|once|only after)\s+(.+)$/iu.exec(prerequisiteText)?.[1];
         if (tail && !(clock.time && /^(?:it\s+is\s+)?past\b/iu.test(tail)))
           condition = canonicalCondition(tail);
         else if (tail && clock.time) {
@@ -419,6 +542,12 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     role: input.role,
     language: input.language,
     parser: 'local-rules',
+    ...(input.role === 'incoming'
+      ? {
+          readbackMode: input.scopeItemIds ? ('targeted' as const) : ('full' as const),
+          ...(input.scopeItemIds ? { scopeItemIds: [...input.scopeItemIds] } : {}),
+        }
+      : {}),
     itemRevisions: Object.fromEntries(input.items.map((item) => [item.id, item.revision])),
     claims,
     issues,

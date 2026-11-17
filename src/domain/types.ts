@@ -1,6 +1,7 @@
 /** The domain is provider-independent and contains no audio blobs or API secrets. */
 export type Language = 'en-IN' | 'hi-IN' | 'mr-IN';
 export type ParticipantRole = 'outgoing' | 'incoming';
+export type ReadbackMode = 'full' | 'targeted';
 export type WorkAction = 'dispatch' | 'hold' | 'pack' | 'collect';
 export type ComparisonStatus = 'agreement' | 'contradiction' | 'omission' | 'uncertainty';
 export type ClaimField =
@@ -28,6 +29,8 @@ export interface HandoverItem {
   owner: string | null;
   revision: number;
   evidence: Evidence[];
+  /** Fields covered by the current spoken change; omitted for legacy source excerpts. */
+  evidenceFields?: ClaimField[];
 }
 
 export interface ParsedClaim {
@@ -58,6 +61,9 @@ export interface ParsedTranscript {
   role: ParticipantRole;
   language: Language;
   parser: 'local-rules' | 'model';
+  /** Explicit intent of an incoming statement. Legacy recordings may omit this metadata. */
+  readbackMode?: ReadbackMode;
+  scopeItemIds?: string[];
   /** The item revisions used during extraction; prevents late results from approving a new plan. */
   itemRevisions: Record<string, number>;
   claims: ParsedClaim[];
@@ -95,7 +101,8 @@ export interface HandoverEvent {
     | 'item-revised'
     | 'item-confirmed'
     | 'item-added'
-    | 'item-removed';
+    | 'item-removed'
+    | 'interpretation-upgraded';
   itemIds: string[];
   message: string;
   createdAt: string;
@@ -111,10 +118,18 @@ export interface HandoverState {
   outgoingName: string;
   incomingName: string;
   language: Language;
+  /** Independent, persisted language preferences; legacy states migrate from language. */
+  participantLanguages: Record<ParticipantRole, Language>;
   items: HandoverItem[];
   utterances: Utterance[];
   readbacks: Record<string, ItemReadback>;
   confirmations: Record<string, Confirmation>;
+  /** A system migration notice, independent of participant acknowledgements or storage errors. */
+  recheckNotice?: {
+    reason: 'legacy-interpretation';
+    itemIds: string[];
+    createdAt: string;
+  };
   events: HandoverEvent[];
   createdAt: string;
   updatedAt: string;
@@ -167,6 +182,7 @@ export interface CreateHandoverInput {
   outgoingName?: string;
   incomingName?: string;
   language?: Language;
+  participantLanguages?: Partial<Record<ParticipantRole, Language>>;
   items?: ItemInput[];
   at?: string;
 }
@@ -185,5 +201,7 @@ export interface SubmitReadbackOptions {
   language?: Language;
   utteranceId?: string;
   scopeItemIds?: string[];
+  /** Unscoped submissions recheck the entire board. Targeted replies replace only their scope. */
+  mode?: ReadbackMode;
   at?: string;
 }

@@ -25,6 +25,13 @@ const output = () => ({
       notBefore: '15:00',
       uncertainFields: [],
       evidenceQuote: text,
+      fieldEvidence: {
+        object: 'Nagpur',
+        action: 'send',
+        quantity: 'eight',
+        unit: 'parcels',
+        notBefore: 'after 3 PM',
+      },
     },
   ],
   issues: [],
@@ -157,6 +164,141 @@ describe('model extraction boundary', () => {
     expect(options.body).not.toContain('test-only-access-token');
     expect((options.headers as Record<string, string>).Authorization).toBe(
       'Bearer test-only-provider-secret',
+    );
+    const payload = JSON.parse(String(options.body));
+    const context = JSON.parse(payload.messages[1].content);
+    expect(context.items).toEqual(
+      input().items.map(({ id, label, aliases }) => ({ id, label, aliases })),
+    );
+    expect(Object.keys(context.items[0]).sort()).toEqual(['aliases', 'id', 'label']);
+  });
+
+  it('requires a source span for each supplied field', () => {
+    const body = output();
+    const { quantity: _quantity, ...withoutQuantity } = body.claims[0].fieldEvidence;
+    const missing = { ...body, claims: [{ ...body.claims[0], fieldEvidence: withoutQuantity }] };
+    expect(() => validateModelOutput(missing, input())).toThrow(/quantity.*evidence/);
+  });
+
+  it('rejects an acknowledgement filled with expected facts', () => {
+    const body = output();
+    body.claims[0].evidenceQuote = 'Yes.';
+    body.claims[0].fieldEvidence = {
+      object: 'Yes.',
+      action: 'Yes.',
+      quantity: 'Yes.',
+      unit: 'Yes.',
+      notBefore: 'Yes.',
+    };
+    expect(() => validateModelOutput(body, { ...input(), text: 'Yes.' })).toThrow(
+      /acknowledgement/,
+    );
+  });
+
+  it('rejects invented numeric values even when the broader quote is genuine', () => {
+    const body = output();
+    body.claims[0].quantity = 9;
+    expect(() => validateModelOutput(body, input())).toThrow(/quantity.*evidence/);
+  });
+
+  it('does not invent an action from a promise with no action verb', () => {
+    const source = 'I will eight Nagpur parcels after 3 PM.';
+    const body = output();
+    body.claims[0].evidenceQuote = source;
+    body.claims[0].fieldEvidence.action = 'will';
+    expect(() => validateModelOutput(body, { ...input(), text: source })).toThrow(
+      /action.*evidence/,
+    );
+  });
+
+  it('rejects a model time that contradicts an explicit day period', () => {
+    const source = 'I will send eight Nagpur parcels after three in the morning.';
+    const body = output();
+    body.claims[0].evidenceQuote = source;
+    body.claims[0].fieldEvidence.notBefore = 'after three in the morning';
+    expect(() => validateModelOutput(body, { ...input(), text: source })).toThrow(/time.*evidence/);
+    body.claims[0].notBefore = '03:00';
+    expect(validateModelOutput(body, { ...input(), text: source }).claims[0]!.notBefore).toBe(
+      '03:00',
+    );
+  });
+
+  it('rejects a provider response that discards another spoken instruction', () => {
+    expect(() =>
+      validateModelOutput(output(), { ...input(), text: `${text} Release the Joshi parcels now.` }),
+    ).toThrow(/omitted part/);
+  });
+
+  it('retains UTF-16 quote offsets when an emoji precedes the source', () => {
+    const parsed = validateModelOutput(output(), { ...input(), text: `📦 ${text}` });
+    expect(parsed.claims[0]!.evidence.start).toBe(3);
+  });
+
+  it('preserves targeted read-back scope from the trusted request', () => {
+    const parsed = validateModelOutput(output(), { ...input(), scopeItemIds: ['NAGPUR'] });
+    expect(parsed.readbackMode).toBe('targeted');
+    expect(parsed.scopeItemIds).toEqual(['NAGPUR']);
+  });
+
+  it.each(['minus eight', 'about eight', 'eight hundred'])(
+    'rejects a model that quotes only the numeral inside %s',
+    (amount) => {
+      const source = `I will send ${amount} Nagpur parcels after 3 PM.`;
+      const body = output();
+      body.claims[0].evidenceQuote = source;
+      expect(() => validateModelOutput(body, { ...input(), text: source })).toThrow(
+        /ambiguity|conflicting/,
+      );
+    },
+  );
+
+  it('cannot hide a negative modifier in an issue assigned to a different item', () => {
+    const source = 'Negative eight Nagpur parcels I will send after 3 PM.';
+    const body = output();
+    body.claims[0].evidenceQuote = 'eight Nagpur parcels I will send after 3 PM.';
+    const forged = {
+      ...body,
+      issues: [
+        {
+          code: 'note',
+          message: 'unclear',
+          itemIds: ['J1'],
+          field: 'quantity',
+          evidenceQuote: 'Negative',
+        },
+      ],
+    };
+    expect(() => validateModelOutput(forged, { ...input(), text: source })).toThrow(
+      /ambiguity|conflicting/,
+    );
+  });
+
+  it('rejects a complete quote with an ignored immediate-release commitment', () => {
+    const source = 'Hold two Joshi parcels until the address is confirmed and release them now.';
+    const body = {
+      claims: [
+        {
+          itemIds: ['J1', 'J2'],
+          action: 'hold',
+          quantity: 2,
+          unit: 'parcel',
+          condition: 'address confirmed',
+          uncertainFields: [],
+          evidenceQuote: source,
+          fieldEvidence: {
+            object: 'Joshi',
+            action: 'Hold',
+            quantity: 'two',
+            unit: 'parcels',
+            condition: 'until the address is confirmed',
+          },
+        },
+      ],
+      issues: [],
+      limitations: [],
+    };
+    expect(() => validateModelOutput(body, { ...input(), text: source })).toThrow(
+      /ambiguity|conflicting/,
     );
   });
   it('does not expose provider error bodies to callers', async () => {

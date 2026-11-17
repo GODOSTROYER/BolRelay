@@ -2,6 +2,9 @@ import { handoverStateSchema } from '../domain/schema';
 import { compareHandover, restoreHandover } from '../domain/engine';
 import type { HandoverState } from '../domain/types';
 
+/** One ceiling shared by generation and import, including UTF-8 and JSON overhead. */
+export const MAX_HANDOVER_FILE_BYTES = 32_000_000;
+
 export function handoverExport(state: HandoverState) {
   return {
     format: 'bolrelay-handover',
@@ -15,9 +18,8 @@ export function handoverExport(state: HandoverState) {
 }
 
 export function exportHandover(state: HandoverState): void {
-  const url = URL.createObjectURL(
-    new Blob([JSON.stringify(handoverExport(state), null, 2)], { type: 'application/json' }),
-  );
+  const serialized = serializeHandoverExport(state);
+  const url = URL.createObjectURL(new Blob([serialized], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
   a.download = `bolrelay-${state.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60)}.json`;
@@ -25,8 +27,18 @@ export function exportHandover(state: HandoverState): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+export function serializeHandoverExport(state: HandoverState): string {
+  const serialized = JSON.stringify(handoverExport(restoreHandover(state)));
+  if (new TextEncoder().encode(serialized).byteLength > MAX_HANDOVER_FILE_BYTES)
+    throw new Error(
+      'This handover exceeds the 32 MB backup limit. Export smaller handovers before adding more history.',
+    );
+  return serialized;
+}
+
 export async function importHandover(file: File): Promise<HandoverState> {
-  if (file.size > 1_000_000) throw new Error('Choose a BolRelay JSON export smaller than 1 MB.');
+  if (file.size > MAX_HANDOVER_FILE_BYTES)
+    throw new Error('Choose a BolRelay JSON export no larger than 32 MB.');
   let data: unknown;
   try {
     data = JSON.parse(await file.text());
@@ -75,7 +87,7 @@ export function printHandover(state: HandoverState): void {
     body{font:15px/1.6 system-ui,sans-serif;color:#1f2926;max-width:1000px;margin:40px auto;padding:0 24px}h1{font-size:30px}table{border-collapse:collapse;width:100%;margin:24px 0}th,td{text-align:left;padding:12px 8px;border-bottom:1px solid #ddd;vertical-align:top}th{font-size:12px}small{color:#555}.note{padding:12px;background:#f2f5f3}@media print{button{display:none}body{margin:0;max-width:none}}
     </style></head><body><h1>${html(state.title)}</h1><p>${html(state.outgoingName)} → ${html(state.incomingName)}</p>
     <small>Exported ${html(new Date().toLocaleString())}. Local times as entered; no timezone inferred.</small>
-    <table><thead><tr><th>Item</th><th>Current instruction</th><th>Understanding</th><th>Confirmation</th></tr></thead><tbody>
+    <table><thead><tr><th>Item</th><th>Current instruction</th><th>Stated plan</th><th>Confirmation</th></tr></thead><tbody>
     ${state.items
       .map((item) => {
         const c = comparisons.find((x) => x.itemId === item.id);

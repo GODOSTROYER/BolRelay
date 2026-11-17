@@ -9,7 +9,8 @@ import {
   ShieldCheck,
   UnlockKeyhole,
 } from 'lucide-react';
-import type { HandoverState, HandoverItem, ItemComparison } from '../domain/types';
+import type { HandoverState, HandoverItem, ItemComparison, Language } from '../domain/types';
+import { comparisonLabel, describeInstruction, ui } from '../lib/language';
 
 export function describeItem(item: HandoverItem): string {
   const action = { dispatch: 'Dispatch', hold: 'Hold', pack: 'Pack', collect: 'Collect' }[
@@ -49,6 +50,8 @@ export function ActionBoard({
   onConfirmAll,
   onEdit,
   onRelease,
+  language = 'en-IN',
+  busy = false,
 }: {
   state: HandoverState;
   comparisons: ItemComparison[];
@@ -56,6 +59,8 @@ export function ActionBoard({
   onConfirmAll: () => void;
   onEdit: (item: HandoverItem) => void;
   onRelease: (item: HandoverItem) => void;
+  language?: Language;
+  busy?: boolean;
 }) {
   const confirmed = comparisons.filter((result) => result.confirmed).length;
   const allAgree =
@@ -69,9 +74,9 @@ export function ActionBoard({
     <aside className="action-column">
       <section className="panel action-board" aria-labelledby="action-board-title">
         <div className="section-heading">
-          <h2 id="action-board-title">Action board</h2>
+          <h2 id="action-board-title">{ui(language, 'actionBoard')}</h2>
           <span className="muted">
-            {state.items.length} {state.items.length === 1 ? 'item' : 'items'}
+            {state.items.length} {ui(language, 'items')}
           </span>
         </div>
         <div className="action-items">
@@ -95,15 +100,16 @@ export function ActionBoard({
                   <div className="item-title">
                     <h3>{item.label}</h3>
                     <p>
-                      {item.quantity} {item.unit}
-                      {item.quantity === 1 || item.unit.endsWith('s') ? '' : 's'} ·{' '}
-                      {describeItem(item)}
+                      {language === 'en-IN'
+                        ? `${item.quantity} ${item.unit}${item.quantity === 1 || item.unit.endsWith('s') ? '' : 's'} · ${describeItem(item)}`
+                        : describeInstruction(item, language)}
                     </p>
                     {item.owner && <p className="item-owner">With {item.owner}</p>}
                   </div>
                   <button
                     type="button"
                     className="icon-button item-edit"
+                    disabled={busy}
                     onClick={() => onEdit(item)}
                     aria-label={`Edit ${item.id}`}
                     data-testid={`edit-${item.id}`}
@@ -124,19 +130,20 @@ export function ActionBoard({
                     ) : (
                       <CircleAlert size={14} />
                     )}
-                    {statusLabel(result)}
+                    {comparisonLabel(result, language)}
                   </span>
                   <div className="item-buttons">
                     {item.action === 'hold' && (
                       <button
                         type="button"
                         className="text-button"
+                        disabled={busy}
                         onClick={() => onRelease(item)}
                         data-testid={`release-${item.id}`}
-                        aria-label={`Release ${item.id}`}
+                        aria-label={`${ui(language, 'updateInstruction')} ${item.id}`}
                       >
                         <UnlockKeyhole size={13} />
-                        Release
+                        {ui(language, 'updateInstruction')}
                       </button>
                     )}
                     <button
@@ -144,15 +151,19 @@ export function ActionBoard({
                       type="button"
                       data-testid={`confirm-${item.id}`}
                       aria-label={`Confirm ${item.id}`}
-                      disabled={result?.status !== 'agreement' || result.stale || result.confirmed}
+                      disabled={
+                        busy || result?.status !== 'agreement' || result.stale || result.confirmed
+                      }
                       onClick={() => onConfirm(item.id)}
                     >
-                      {result?.confirmed ? 'Confirmed' : 'Confirm'}
+                      {ui(language, result?.confirmed ? 'confirmed' : 'confirm')}
                     </button>
                   </div>
                 </div>
                 {item.revision > 1 && (
-                  <p className="revision-note">Instruction updated · version {item.revision}</p>
+                  <p className="revision-note">
+                    {ui(language, 'updated')} · {item.revision}
+                  </p>
                 )}
               </article>
             );
@@ -167,24 +178,24 @@ export function ActionBoard({
           {complete ? <ShieldCheck size={24} /> : <Flag size={24} />}
           <h3>
             {complete
-              ? 'The handover is confirmed'
+              ? ui(language, 'completeTitle')
               : allAgree
-                ? 'The plan matches'
-                : 'Ready when the plan matches'}
+                ? ui(language, 'matchedTitle')
+                : ui(language, 'clarifyTitle')}
           </h3>
         </div>
         <p>
           {complete
-            ? 'Every item has a matching read-back and a confirmation for its current instruction.'
+            ? ui(language, 'completeHelp')
             : allAgree
-              ? 'The stated actions match. Review the board, then confirm the handover.'
-              : `Resolve ${unresolved === 1 ? 'the remaining item' : `the ${unresolved} remaining items`} before confirming this handover.`}
+              ? ui(language, 'matchedHelp')
+              : `${unresolved} ${ui(language, 'items')}. ${ui(language, 'needsCheck')}`}
         </p>
         <div className="confirmation-progress">
           <span>
-            {confirmed} of {state.items.length} confirmed
+            {confirmed} / {state.items.length} · {ui(language, 'confirmed')}
           </span>
-          <span>{complete ? 'Complete' : 'In progress'}</span>
+          <span>{ui(language, complete ? 'complete' : 'progress')}</span>
         </div>
         <div className="progress-track">
           <div
@@ -196,14 +207,12 @@ export function ActionBoard({
           type="button"
           data-testid="confirm-handover"
           onClick={onConfirmAll}
-          disabled={!allAgree || complete}
+          disabled={busy || !allAgree || complete}
         >
           {complete ? <CheckCheck size={17} /> : null}
-          {complete ? 'Handover confirmed' : 'Confirm handover'}
+          {ui(language, complete ? 'completeTitle' : 'confirmAll')}
         </button>
-        <p className="confirmation-disclosure">
-          Confirmation records a stated plan, not proof of completion.
-        </p>
+        <p className="confirmation-disclosure">{ui(language, 'meaning')}</p>
       </section>
     </aside>
   );

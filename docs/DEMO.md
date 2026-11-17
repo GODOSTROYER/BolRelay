@@ -6,7 +6,23 @@ BolRelay checks whether the actions a recipient states agree with the current re
 
 It does not establish field adoption, general multilingual recognition accuracy, or a guarantee that work will be performed. Label the example as synthetic when presenting it.
 
-## Ninety-second story
+## Fresh-board opening
+
+Use this before the synthetic discrepancy story to show that the board is not limited to seeded items. Choose **New handover** and speak or type:
+
+> Send three Pune parcels after 4 pm. Hold one parcel J7 until the address is confirmed.
+
+Choose **Review instructions**, inspect the two proposed items, and select the review checkbox before creating the handover. The recipient view asks the incoming person to state their next actions. **Listen to instructions** is available only if a matching browser voice exists. Use an actual microphone only after checking the browser/device; typing is a disclosed fallback.
+
+Enter:
+
+> I will send three Pune parcels after 4 pm. I will hold one parcel J7 until the address is confirmed.
+
+Check and confirm each item. Switch to the full view to inspect the quotations and current board. A full recheck that mentions only Pune must reopen J7; a targeted repair for J7 preserves Pune's confirmation.
+
+The new-board parser supports one named item group per sentence. Ambiguous hours, combined destinations, conflicting actions, and unsupported quantities remain unresolved. Do not present these bounded supported examples as unrestricted speech understanding.
+
+## Ninety-second discrepancy story
 
 ### 1. Establish the handover
 
@@ -22,7 +38,7 @@ Explain: “A handover can sound fluent and still lose a condition.”
 
 The example opens with this synthetic incoming statement already checked. To replay it, choose **A missed hold** or type:
 
-> I will send all ten parcels after three.
+> I will send all ten parcels after 3 PM.
 
 Click **Check read-back**. Nagpur should show **Matches**; J1 and J2 should show **Clarify**. Expand the clarification cards to show the outgoing and incoming quotations. Here the recipient explicitly proposes sending the held parcels, so this is a contradiction rather than an omitted mention.
 
@@ -36,7 +52,7 @@ Click **Check read-back**. All three items should show **Matches**. Review the b
 
 ### 4. Change one instruction
 
-In the synthetic story, J1's address has now been confirmed. Choose **Release** on **Joshi · J1**, read the dialog, then choose **Release J1**. J1 becomes a dispatch instruction at version 2 and its old confirmation reopens. J2 remains held and confirmed; Nagpur's confirmation also remains valid.
+In the synthetic story, J1's address has now been confirmed. Choose **Change to dispatch** on **Joshi · J1**, read the dialog, then choose **Change instruction to dispatch**. This changes the recorded instruction; it does not operate a warehouse. J1 becomes a dispatch instruction at version 2 and its old confirmation reopens. J2 remains held and confirmed; Nagpur's confirmation also remains valid.
 
 The composer now targets J1. Enter:
 
@@ -48,7 +64,7 @@ Choose **Check read-back**, then **Confirm** on J1. Open **Activity** to inspect
 
 Start with **Load example** again so J1 and J2 are both held. Enter:
 
-> I will hold two Joshi parcels until the address is confirmed. I will send eight Nagpur parcels once it is past three.
+> I will hold two Joshi parcels until the address is confirmed. I will send eight Nagpur parcels once it is past 3 PM.
 
 Choose **Check read-back**. This supported local-rule paraphrase and the reordered clauses should match all three current instructions.
 

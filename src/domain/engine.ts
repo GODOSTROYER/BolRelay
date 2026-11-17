@@ -1,5 +1,10 @@
 import { canonicalCondition, canonicalUnit, normalizeText, parseTranscript } from './parser';
-import { handoverItemSchema, handoverStateSchema, parsedTranscriptSchema } from './schema';
+import {
+  handoverItemSchema,
+  handoverStateSchema,
+  languageSchema,
+  parsedTranscriptSchema,
+} from './schema';
 import type {
   ComparisonStatus,
   CreateHandoverInput,
@@ -11,8 +16,10 @@ import type {
   ItemComparison,
   ItemInput,
   ItemPatch,
+  Language,
   ParsedClaim,
   ParsedTranscript,
+  ParticipantRole,
   SubmitReadbackOptions,
 } from './types';
 
@@ -55,6 +62,12 @@ function appendEvent(state: HandoverState, event: Omit<HandoverEvent, 'id'>): Ha
   };
 }
 
+function remainingRecheckNotice(state: HandoverState, clearedIds: Set<string>) {
+  if (!state.recheckNotice) return undefined;
+  const itemIds = state.recheckNotice.itemIds.filter((id) => !clearedIds.has(id));
+  return itemIds.length ? { ...state.recheckNotice, itemIds } : undefined;
+}
+
 function validatedItem(input: ItemInput, revision = 1): HandoverItem {
   const result = handoverItemSchema.safeParse({
     ...input,
@@ -84,6 +97,10 @@ export function createHandover(input: CreateHandoverInput = {}): HandoverState {
     outgoingName: input.outgoingName?.trim() || 'Outgoing worker',
     incomingName: input.incomingName?.trim() || 'Incoming worker',
     language: input.language ?? 'en-IN',
+    participantLanguages: {
+      outgoing: input.participantLanguages?.outgoing ?? input.language ?? 'en-IN',
+      incoming: input.participantLanguages?.incoming ?? input.language ?? 'en-IN',
+    },
     items,
     utterances: [],
     readbacks: {},
@@ -100,6 +117,26 @@ export function createHandover(input: CreateHandoverInput = {}): HandoverState {
   });
 }
 
+/** Preferences do not change operational instructions or invalidate acknowledgements. */
+export function setParticipantLanguage(
+  state: HandoverState,
+  role: ParticipantRole,
+  language: Language,
+): HandoverState {
+  if ((role !== 'outgoing' && role !== 'incoming') || !languageSchema.safeParse(language).success)
+    throw new DomainError('INVALID_LANGUAGE', 'Choose a supported participant language.');
+  const current = state.participantLanguages ?? {
+    outgoing: state.language,
+    incoming: state.language,
+  };
+  if (current[role] === language) return state;
+  return {
+    ...state,
+    participantLanguages: { ...current, [role]: language },
+    updatedAt: latest(state.updatedAt, now()),
+  };
+}
+
 function validateParsed(parsed: ParsedTranscript, items: HandoverItem[]) {
   const result = parsedTranscriptSchema.safeParse(parsed);
   if (!result.success)
@@ -108,6 +145,19 @@ function validateParsed(parsed: ParsedTranscript, items: HandoverItem[]) {
       result.error.issues.map((issue) => issue.message).join('; '),
     );
   const ids = new Set(items.map((item) => item.id));
+  if (
+    (result.data.role === 'outgoing' &&
+      (result.data.readbackMode !== undefined || result.data.scopeItemIds !== undefined)) ||
+    (result.data.readbackMode === 'full' && result.data.scopeItemIds !== undefined) ||
+    (result.data.readbackMode === 'targeted' && !result.data.scopeItemIds?.length) ||
+    (result.data.scopeItemIds &&
+      (new Set(result.data.scopeItemIds).size !== result.data.scopeItemIds.length ||
+        result.data.scopeItemIds.some((id) => !ids.has(id))))
+  )
+    throw new DomainError(
+      'INVALID_READBACK_SCOPE',
+      'The recording contains an invalid read-back scope.',
+    );
   const claimIds = new Set<string>();
   for (const claim of result.data.claims) {
     if (claimIds.has(claim.id))
@@ -495,29 +545,59 @@ export function compareHandover(state: HandoverState): ItemComparison[] {
 export function recordReadback(
   state: HandoverState,
   raw: ParsedTranscript,
-  options: { at?: string } = {},
+  options: Pick<SubmitReadbackOptions, 'at' | 'mode' | 'scopeItemIds'> = {},
 ): HandoverState {
   if (raw.role !== 'incoming')
     throw new DomainError(
       'WRONG_ROLE',
       'Only the incoming participant can provide the independent read-back.',
     );
+  const requestedScope = options.scopeItemIds ?? raw.scopeItemIds;
+  const mode = options.mode ?? raw.readbackMode ?? (requestedScope ? 'targeted' : 'full');
+  if (
+    (options.mode && raw.readbackMode && options.mode !== raw.readbackMode) ||
+    (options.scopeItemIds &&
+      raw.scopeItemIds &&
+      stable([...options.scopeItemIds].sort()) !== stable([...raw.scopeItemIds].sort())) ||
+    (mode === 'full' && requestedScope !== undefined) ||
+    (mode === 'targeted' &&
+      (!requestedScope?.length ||
+        new Set(requestedScope).size !== requestedScope.length ||
+        requestedScope.some((id) => !state.items.some((item) => item.id === id))))
+  )
+    throw new DomainError(
+      'INVALID_READBACK_SCOPE',
+      'Choose either a full recheck or explicit current items for a targeted reply.',
+    );
+  const normalized: ParsedTranscript = {
+    ...raw,
+    readbackMode: mode,
+    ...(mode === 'targeted' ? { scopeItemIds: [...requestedScope!] } : {}),
+  };
   const existing = state.utterances.find((utterance) => utterance.utteranceId === raw.utteranceId);
   if (existing) {
     const { createdAt: _createdAt, ...previous } = existing;
-    if (stable(previous) === stable(raw)) return state;
+    // Legacy stored recordings have no mode metadata. A byte-identical retry is
+    // still idempotent and must never reapply the old result to a changed plan.
+    if (stable({ ...previous, readbackMode: previous.readbackMode ?? mode }) === stable(normalized))
+      return state;
     throw new DomainError(
       'DUPLICATE_UTTERANCE',
       'This recording ID was already used for different content.',
     );
   }
-  const parsed = validateParsed(raw, state.items);
-  const affected = new Set([
-    ...parsed.claims.flatMap((claim) => claim.itemIds),
-    ...parsed.issues.flatMap((issue) => issue.itemIds),
-  ]);
-  if (parsed.issues.some((issue) => issue.itemIds.length === 0) || affected.size === 0)
-    for (const item of state.items) affected.add(item.id);
+  const parsed = validateParsed(normalized, state.items);
+  const affected = new Set(mode === 'full' ? state.items.map((item) => item.id) : requestedScope!);
+  if (
+    mode === 'targeted' &&
+    [...parsed.claims, ...parsed.issues].some((part) =>
+      part.itemIds.some((id) => !affected.has(id)),
+    )
+  )
+    throw new DomainError(
+      'OUTSIDE_READBACK_SCOPE',
+      'This reply also names another item. Recheck the full handover or clarify only the selected items.',
+    );
   for (const id of affected) {
     const item = state.items.find((candidate) => candidate.id === id)!;
     if (parsed.itemRevisions[id] !== item.revision)
@@ -557,12 +637,18 @@ export function recordReadback(
       ...state,
       readbacks,
       confirmations,
+      ...(state.recheckNotice && {
+        recheckNotice: remainingRecheckNotice(state, affected),
+      }),
       utterances: [...state.utterances, { ...clone(parsed), createdAt: at }],
     },
     {
       type: 'readback-recorded',
       itemIds: [...affected],
-      message: 'Incoming participant explained their intended actions.',
+      message:
+        mode === 'full'
+          ? 'Incoming participant rechecked the complete handover; omitted items need clarification.'
+          : 'Incoming participant clarified the selected items; other acknowledgements were retained.',
       createdAt: at,
     },
   );
@@ -578,13 +664,17 @@ export function submitReadback(
       ? parseTranscript({
           text: textOrParsed,
           role: 'incoming',
-          language: options.language ?? state.language,
+          language: options.language ?? state.participantLanguages?.incoming ?? state.language,
           items: state.items,
           utteranceId: options.utteranceId,
           scopeItemIds: options.scopeItemIds,
         })
       : textOrParsed;
-  return recordReadback(state, parsed, { at: options.at });
+  return recordReadback(state, parsed, {
+    at: options.at,
+    mode: options.mode,
+    scopeItemIds: options.scopeItemIds,
+  });
 }
 
 /** The user reviews a proposed change before this function is called. */
@@ -602,9 +692,22 @@ export function reviseItem(
       'This instruction has changed. Review its current version before editing.',
     );
   const next = validatedItem({ ...previous, ...clone(patch), id: previous.id }, previous.revision);
-  if (stable(previous) === stable(next)) return state;
+  if (
+    stable({ ...previous, evidence: [], evidenceFields: undefined }) ===
+    stable({ ...next, evidence: [], evidenceFields: undefined })
+  )
+    return state;
   // A manual change is grounded in the revision event, not in an obsolete voice quote.
-  if (patch.evidence === undefined) next.evidence = [];
+  if (patch.evidence === undefined || patch.evidence.length === 0) {
+    next.evidence = [];
+    next.evidenceFields = [];
+  } else {
+    next.evidenceFields = (
+      ['quantity', 'unit', 'action', 'notBefore', 'condition', 'owner'] as const
+    ).filter((field) => patch[field] !== undefined);
+    if (patch.label !== undefined || patch.aliases !== undefined)
+      next.evidenceFields.push('object');
+  }
   next.revision++;
   const confirmations = { ...state.confirmations };
   delete confirmations[itemId];
@@ -654,7 +757,7 @@ export function releaseItem(
       ...revised.events.slice(0, -1),
       {
         ...event,
-        message: `${current.label} released: ${note.slice(0, 700)} A new read-back is required for this item.`,
+        message: `${current.label} instruction changed to dispatch: ${note.slice(0, 700)} A new read-back is required for this item.`,
       },
     ],
   };
@@ -741,6 +844,9 @@ export function removeItem(state: HandoverState, itemId: string): HandoverState 
       items: state.items.filter((candidate) => candidate.id !== itemId),
       readbacks,
       confirmations,
+      ...(state.recheckNotice && {
+        recheckNotice: remainingRecheckNotice(state, new Set([itemId])),
+      }),
     },
     {
       type: 'item-removed',
@@ -761,6 +867,12 @@ export function restoreHandover(value: unknown): HandoverState {
   const ids = new Set(state.items.map((item) => item.id));
   if (ids.size !== state.items.length)
     throw new DomainError('INVALID_BACKUP', 'The handover has duplicate item IDs.');
+  if (
+    state.recheckNotice &&
+    (new Set(state.recheckNotice.itemIds).size !== state.recheckNotice.itemIds.length ||
+      state.recheckNotice.itemIds.some((id) => !ids.has(id)))
+  )
+    throw new DomainError('INVALID_BACKUP', 'The system recheck notice references invalid items.');
   const utteranceIds = new Set(state.utterances.map((utterance) => utterance.utteranceId));
   if (utteranceIds.size !== state.utterances.length)
     throw new DomainError('INVALID_BACKUP', 'The handover has duplicate recording IDs.');
@@ -773,6 +885,71 @@ export function restoreHandover(value: unknown): HandoverState {
     const historicItems = [...historicIds].map((id) => ({ id }) as HandoverItem);
     validateParsed(utterance, historicItems);
   }
+  for (const item of state.items) {
+    if (item.evidenceFields?.length && item.evidence.length === 0)
+      throw new DomainError(
+        'INVALID_BACKUP',
+        'An instruction change lists source fields without source evidence.',
+      );
+    for (const evidence of item.evidence) {
+      const source = state.utterances.find(
+        (utterance) => utterance.utteranceId === evidence.utteranceId,
+      );
+      if (
+        !source ||
+        source.role !== 'outgoing' ||
+        evidence.end > source.text.length ||
+        evidence.text !== source.text.slice(evidence.start, evidence.end) ||
+        !source.claims.some(
+          (claim) => claim.itemIds.includes(item.id) && stable(claim.evidence) === stable(evidence),
+        )
+      )
+        throw new DomainError(
+          'INVALID_BACKUP',
+          'An outgoing instruction excerpt does not match its original recording and item.',
+        );
+    }
+    // New spoken edits explicitly identify the fields their excerpts support.
+    // Unmentioned inherited fields must not be attributed to the new quotation.
+    for (const field of item.evidenceFields ?? []) {
+      const supported = item.evidence.some((evidence) => {
+        const source = state.utterances.find(
+          (utterance) => utterance.utteranceId === evidence.utteranceId,
+        )!;
+        return source.claims.some((claim) => {
+          if (
+            !claim.itemIds.includes(item.id) ||
+            stable(claim.evidence) !== stable(evidence) ||
+            claim.uncertainFields.includes(field)
+          )
+            return false;
+          if (field === 'object') return true;
+          if (field === 'quantity')
+            return claim.itemIds.length === 1 && claim.quantity === item.quantity;
+          if (field === 'unit')
+            return (
+              claim.unit !== undefined && canonicalUnit(claim.unit) === canonicalUnit(item.unit)
+            );
+          if (field === 'condition')
+            return (
+              claim.condition !== undefined &&
+              canonicalCondition(claim.condition ?? '') === canonicalCondition(item.condition ?? '')
+            );
+          if (field === 'owner')
+            return (
+              claim.owner !== undefined &&
+              normalizeText(claim.owner ?? '') === normalizeText(item.owner ?? '')
+            );
+          return claim[field] !== undefined && claim[field] === item[field];
+        });
+      });
+      if (!supported)
+        throw new DomainError(
+          'INVALID_BACKUP',
+          'An outgoing change attributes a field to an excerpt that does not support the stored value.',
+        );
+    }
+  }
   for (const [id, readback] of Object.entries(state.readbacks)) {
     const source = state.utterances.find(
       (utterance) => utterance.utteranceId === readback.utteranceId,
@@ -783,6 +960,7 @@ export function restoreHandover(value: unknown): HandoverState {
       id !== readback.itemId ||
       !source ||
       source.role !== 'incoming' ||
+      (source.readbackMode === 'targeted' && !source.scopeItemIds?.includes(id)) ||
       readback.itemRevision > item.revision ||
       source.itemRevisions[id] !== readback.itemRevision ||
       readback.claims.some(
@@ -809,7 +987,44 @@ export function restoreHandover(value: unknown): HandoverState {
         'The handover contains an invalid or stale confirmation.',
       );
   }
-  return clone(state);
+  // Earlier recordings lack explicit full/targeted intent and were
+  // interpreted before ambiguity guards were strengthened. Keep their original
+  // statements and audit history, but never restore those results as active
+  // understanding or acknowledgements. Validate everything above first so this
+  // migration cannot conceal inconsistent or tampered source records.
+  const legacyItemIds = Object.entries(state.readbacks)
+    .filter(([, readback]) => {
+      const source = state.utterances.find(
+        (utterance) => utterance.utteranceId === readback.utteranceId,
+      )!;
+      return source.readbackMode === undefined;
+    })
+    .map(([id]) => id);
+  if (legacyItemIds.length === 0) return clone(state);
+
+  const migrated = clone(state);
+  for (const id of legacyItemIds) {
+    delete migrated.readbacks[id];
+    delete migrated.confirmations[id];
+  }
+  const at = now();
+  migrated.updatedAt = latest(migrated.updatedAt, at);
+  migrated.recheckNotice = {
+    reason: 'legacy-interpretation',
+    itemIds: [...new Set([...(state.recheckNotice?.itemIds ?? []), ...legacyItemIds])],
+    createdAt: state.recheckNotice?.createdAt ?? at,
+  };
+  // A full history is retained even at the supported event limit. The separate
+  // persisted system notice remains visible without adding an invalid 5001st event.
+  return migrated.events.length < 5_000
+    ? appendEvent(migrated, {
+        type: 'interpretation-upgraded',
+        itemIds: legacyItemIds,
+        message:
+          'System update: earlier read-backs need a fresh check after interpretation rules changed. Original statements and history were retained; no participant acknowledgement was added.',
+        createdAt: at,
+      })
+    : migrated;
 }
 
 export function getHandoverSummary(state: HandoverState) {

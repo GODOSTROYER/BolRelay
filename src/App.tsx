@@ -28,6 +28,8 @@ import {
   recordReadback,
   releaseItem,
   reviseItem,
+  restoreHandover,
+  setParticipantLanguage,
   submitReadback,
   type CreateHandoverInput,
   type HandoverItem,
@@ -41,8 +43,10 @@ import { analyzeTranscript, getCapabilities, type Capabilities } from './lib/api
 import {
   clearSavedWorkspace,
   downloadStoredWorkspace,
+  importWorkspaceBackup,
   readWorkspace,
   removeAudio,
+  restoreWorkspaceBackup,
   saveAudio,
   writeWorkspace,
 } from './lib/persistence';
@@ -53,11 +57,16 @@ import { ComparisonPanel } from './components/ComparisonPanel';
 import { ItemEditor, NewHandover } from './components/ItemEditor';
 import { Modal } from './components/Modal';
 import { VoiceComposer } from './components/VoiceComposer';
+import { SpokenHandover } from './components/SpokenHandover';
+import { RecipientGuide } from './components/RecipientGuide';
+import { ui } from './lib/language';
 import type { CapturedAudio } from './hooks/useVoiceCapture';
 import './styles.css';
 
 type Dialog =
   | { kind: 'new' }
+  | { kind: 'new-manual' }
+  | { kind: 'restore-workspace'; raw: string; count: number }
   | { kind: 'edit'; item: HandoverItem }
   | { kind: 'release'; item: HandoverItem }
   | { kind: 'instructions'; parsed: ParsedTranscript; targetId: string }
@@ -91,6 +100,7 @@ export default function App() {
   const [incomingText, setIncomingText] = useState('');
   const [outgoingText, setOutgoingText] = useState('');
   const [scope, setScope] = useState<string | null>(null);
+  const [guided, setGuided] = useState(false);
   const [pendingAudio, setPendingAudio] = useState<CapturedAudio | null>(null);
   const [captureRevision, setCaptureRevision] = useState(0);
   const [view, setView] = useState<'handover' | 'activity'>('handover');
@@ -107,6 +117,7 @@ export default function App() {
     requiresToken: false,
   });
   const importInput = useRef<HTMLInputElement>(null);
+  const workspaceImportInput = useRef<HTMLInputElement>(null);
   const navigationPanel = useRef<HTMLElement>(null);
   const workspaceRef = useRef(handovers);
   workspaceRef.current = handovers;
@@ -140,7 +151,8 @@ export default function App() {
       [...current.utterances].reverse().find((utterance) => utterance.role === 'outgoing')?.text ??
         (current.id.startsWith('demo-') ? DEMO_TRANSCRIPTS[current.language].outgoing : ''),
     );
-    setLanguage(current.language);
+    setLanguage(current.participantLanguages.incoming);
+    setGuided(!current.id.startsWith('demo-'));
     setScope(null);
     setPendingAudio(null);
     setError('');
@@ -213,7 +225,7 @@ export default function App() {
       return false;
     }
     try {
-      const next = transform(current);
+      const next = restoreHandover(transform(current));
       const updated = workspaceRef.current.map((handover) =>
         handover.id === id ? next : handover,
       );
@@ -250,6 +262,7 @@ export default function App() {
     setBusy(true);
     setError('');
     const audio = pendingAudio;
+    const readbackScope = role === 'incoming' && scope ? [scope] : undefined;
     try {
       const parsed = await analyzeTranscript(
         {
@@ -258,10 +271,14 @@ export default function App() {
           language,
           items: active.items,
           utteranceId: crypto.randomUUID(),
-          ...(role === 'incoming' && scope ? { scopeItemIds: [scope] } : {}),
+          ...(readbackScope ? { scopeItemIds: readbackScope } : {}),
         },
         { mode, accessToken },
       );
+      if (targetId !== activeIdRef.current) {
+        setToast('The interpretation was set aside because you switched handovers.');
+        return;
+      }
       if (parsed.role === 'outgoing') {
         if (targetId !== activeIdRef.current) {
           setToast('The spoken instruction result was set aside because you switched handovers.');
@@ -269,7 +286,14 @@ export default function App() {
         }
         setDialog({ kind: 'instructions', parsed, targetId });
       } else {
-        if (commit(targetId, (state) => recordReadback(state, parsed))) {
+        if (
+          commit(targetId, (state) =>
+            recordReadback(state, parsed, {
+              mode: readbackScope ? 'targeted' : 'full',
+              ...(readbackScope ? { scopeItemIds: readbackScope } : {}),
+            }),
+          )
+        ) {
           if (audio) {
             try {
               await saveAudio(parsed.utteranceId, audio.blob);
@@ -312,6 +336,15 @@ export default function App() {
         throw new Error(
           'No supported item instructions were found. Use the item edit controls to set the plan.',
         );
+      const mentioned = new Set<string>();
+      for (const claim of parsed.claims)
+        for (const id of claim.itemIds) {
+          if (mentioned.has(id))
+            throw new Error(
+              'This item has multiple instruction statements. State one clear final instruction for each item before applying changes.',
+            );
+          mentioned.add(id);
+        }
       let next = current;
       for (const claim of parsed.claims) {
         if (claim.uncertainFields.length)
@@ -369,6 +402,9 @@ export default function App() {
       setCaptureRevision((value) => value + 1);
       setDialog(null);
       setRole('incoming');
+      setLanguage(
+        workspaceRef.current.find((state) => state.id === targetId)!.participantLanguages.incoming,
+      );
       setScope(null);
       setToast(
         instructionsChanged
@@ -412,8 +448,23 @@ export default function App() {
   };
   const switchRole = (next: ParticipantRole) => {
     setRole(next);
+    setLanguage(active.participantLanguages[next]);
     setScope(null);
     setPendingAudio(null);
+  };
+  const changeLanguage = (next: Language) => {
+    if (commit(active.id, (state) => setParticipantLanguage(state, role, next))) {
+      setLanguage(next);
+      setPendingAudio(null);
+    }
+  };
+  const clarifyItem = (id: string) => {
+    setRole('incoming');
+    setLanguage(active.participantLanguages.incoming);
+    setIncomingText('');
+    setScope(id);
+    setPendingAudio(null);
+    window.setTimeout(() => document.getElementById('incoming-transcript')?.focus(), 0);
   };
   const importFile = async (file: File | undefined) => {
     if (!file) return;
@@ -465,7 +516,7 @@ export default function App() {
         <p className="brand-note">
           Clear handovers.
           <br />
-          Shared understanding.
+          Clear next actions.
         </p>
         <nav className="primary-nav">
           <button
@@ -638,6 +689,20 @@ export default function App() {
             </div>
           </div>
         )}
+        {active.recheckNotice && (
+          <div className="storage-warning" role="status" data-testid="legacy-recheck-notice">
+            <Info size={19} />
+            <div>
+              <strong>{ui(language, 'checkAgain')}</strong>
+              <p>{ui(language, 'legacyRecheck')}</p>
+              <p>
+                {active.recheckNotice.itemIds
+                  .map((id) => active.items.find((item) => item.id === id)?.label ?? id)
+                  .join(' · ')}
+              </p>
+            </div>
+          </div>
+        )}
         {error && (
           <div className="error-banner" role="alert">
             <Info size={18} />
@@ -677,8 +742,39 @@ export default function App() {
                 <strong>Confirm</strong>
               </li>
             </ol>
-            <div className="workspace-grid">
+            <div className="workspace-view-toggle" role="group" aria-label="Handover view">
+              <button
+                className={`button button-small ${guided ? 'language-selected' : ''}`}
+                type="button"
+                aria-pressed={guided}
+                onClick={() => setGuided(true)}
+                data-testid="guided-view"
+              >
+                {ui(language, 'workerView')}
+              </button>
+              <button
+                className={`button button-small ${!guided ? 'language-selected' : ''}`}
+                type="button"
+                aria-pressed={!guided}
+                onClick={() => setGuided(false)}
+                data-testid="full-view"
+              >
+                {ui(language, 'fullView')}
+              </button>
+            </div>
+            <div className={`workspace-grid ${guided ? 'guided-workspace' : ''}`}>
               <div className="conversation-column">
+                {guided && role === 'incoming' && (
+                  <RecipientGuide
+                    state={active}
+                    comparisons={comparisons}
+                    language={language}
+                    scope={scope}
+                    onClarify={clarifyItem}
+                    onConfirm={confirmOne}
+                    busy={busy}
+                  />
+                )}
                 <VoiceComposer
                   key={`${active.id}-${role}-${scope ?? 'full'}-${captureRevision}`}
                   role={role}
@@ -686,15 +782,20 @@ export default function App() {
                   text={role === 'incoming' ? incomingText : outgoingText}
                   setText={role === 'incoming' ? setIncomingText : setOutgoingText}
                   language={language}
-                  setLanguage={setLanguage}
+                  setLanguage={changeLanguage}
+                  contextKey={`${active.id}:${active.items.map((item) => `${item.id}:${item.revision}`).join(',')}`}
                   name={role === 'incoming' ? active.incomingName : active.outgoingName}
                   busy={busy}
                   onSubmit={() => void checkTranscript()}
                   onAudio={setPendingAudio}
                   scope={scope ? active.items.find((item) => item.id === scope)?.label : undefined}
-                  clearScope={() => setScope(null)}
+                  clearScope={() => {
+                    setScope(null);
+                    setPendingAudio(null);
+                    setIncomingText('');
+                  }}
                   onExample={
-                    isDemo
+                    isDemo && !guided
                       ? (kind) => {
                           setIncomingText(
                             DEMO_TRANSCRIPTS[language][
@@ -708,20 +809,15 @@ export default function App() {
                       : undefined
                   }
                 />
-                <ComparisonPanel
-                  state={active}
-                  comparisons={comparisons}
-                  onClarify={(id) => {
-                    setRole('incoming');
-                    setIncomingText('');
-                    setScope(id);
-                    setPendingAudio(null);
-                    window.setTimeout(
-                      () => document.getElementById('incoming-transcript')?.focus(),
-                      0,
-                    );
-                  }}
-                />
+                {!guided && (
+                  <ComparisonPanel
+                    state={active}
+                    comparisons={comparisons}
+                    language={language}
+                    busy={busy}
+                    onClarify={clarifyItem}
+                  />
+                )}
                 <div className="workspace-note">
                   <Info size={15} />
                   <p>
@@ -737,14 +833,18 @@ export default function App() {
                   </p>
                 </div>
               </div>
-              <ActionBoard
-                state={active}
-                comparisons={comparisons}
-                onConfirm={confirmOne}
-                onConfirmAll={confirmAll}
-                onEdit={(item) => setDialog({ kind: 'edit', item })}
-                onRelease={(item) => setDialog({ kind: 'release', item })}
-              />
+              {!guided && (
+                <ActionBoard
+                  state={active}
+                  comparisons={comparisons}
+                  language={language}
+                  busy={busy}
+                  onConfirm={confirmOne}
+                  onConfirmAll={confirmAll}
+                  onEdit={(item) => setDialog({ kind: 'edit', item })}
+                  onRelease={(item) => setDialog({ kind: 'release', item })}
+                />
+              )}
             </div>
           </>
         ) : (
@@ -786,7 +886,48 @@ export default function App() {
         aria-label="Import handover file"
         onChange={(event) => void importFile(event.target.files?.[0])}
       />
+      <input
+        type="file"
+        className="sr-only"
+        ref={workspaceImportInput}
+        accept="application/json,.json"
+        aria-label="Restore workspace backup file"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          try {
+            const preview = await importWorkspaceBackup(file);
+            if (!preview.handovers.length)
+              throw new Error(
+                'This backup has no handovers. The current workspace has not changed.',
+              );
+            setDialog({
+              kind: 'restore-workspace',
+              raw: await file.text(),
+              count: preview.handovers.length,
+            });
+          } catch (cause) {
+            setError(messageOf(cause));
+          }
+          if (workspaceImportInput.current) workspaceImportInput.current.value = '';
+        }}
+      />
       {dialog?.kind === 'new' && (
+        <SpokenHandover
+          initialLanguage={active.participantLanguages.outgoing}
+          onClose={closeDialog}
+          onManual={() => setDialog({ kind: 'new-manual' })}
+          onCreate={async (state, audio) => {
+            if (workspaceRef.current.length >= 40)
+              throw new Error('Export and remove an older handover before adding another.');
+            if (audio && state.utterances[0])
+              await saveAudio(state.utterances[0].utteranceId, audio.blob);
+            addHandover(state);
+            setToast('Reviewed handover created. The incoming person can now state their plan.');
+          }}
+        />
+      )}
+      {dialog?.kind === 'new-manual' && (
         <NewHandover
           onClose={closeDialog}
           onCreate={(input: CreateHandoverInput) => {
@@ -812,6 +953,7 @@ export default function App() {
               )
             ) {
               setDialog(null);
+              clarifyItem(dialog.item.id);
               setToast('Instruction saved. Affected confirmations have reopened.');
             }
           }}
@@ -819,8 +961,8 @@ export default function App() {
       )}
       {dialog?.kind === 'release' && (
         <Modal
-          title={`Release ${dialog.item.id}?`}
-          subtitle="Confirm that its release condition has actually been met."
+          title={`Change ${dialog.item.id} to dispatch?`}
+          subtitle="The outgoing person must verify the prerequisite before changing this instruction."
           onClose={closeDialog}
         >
           <div className="release-summary">
@@ -852,13 +994,17 @@ export default function App() {
                 ) {
                   setDialog(null);
                   setRole('incoming');
+                  setLanguage(active.participantLanguages.incoming);
                   setIncomingText('');
                   setScope(dialog.item.id);
-                  setToast(`${dialog.item.label} released. Other instructions are unchanged.`);
+                  setPendingAudio(null);
+                  setToast(
+                    `${dialog.item.label} instruction updated. Other instructions are unchanged.`,
+                  );
                 }
               }}
             >
-              Release {dialog.item.id}
+              Change instruction to dispatch
               <ArrowRight size={16} />
             </button>
           </div>
@@ -1017,6 +1163,31 @@ export default function App() {
                 type="button"
                 className="button button-small"
                 onClick={() => {
+                  try {
+                    downloadStoredWorkspace();
+                  } catch (cause) {
+                    setError(messageOf(cause));
+                  }
+                }}
+              >
+                <Download size={16} />
+                Back up saved workspace
+              </button>
+              <button
+                type="button"
+                className="button button-small"
+                onClick={() => {
+                  closeDialog();
+                  workspaceImportInput.current?.click();
+                }}
+              >
+                <Upload size={16} />
+                Restore workspace backup
+              </button>
+              <button
+                type="button"
+                className="button button-small"
+                onClick={() => {
                   closeDialog();
                   importInput.current?.click();
                 }}
@@ -1081,6 +1252,79 @@ export default function App() {
               }}
             >
               Reset and save current workspace
+            </button>
+          </div>
+        </Modal>
+      )}
+      {dialog?.kind === 'restore-workspace' && (
+        <Modal
+          title="Restore this workspace backup?"
+          subtitle={`${dialog.count} validated handover${dialog.count === 1 ? '' : 's'}`}
+          onClose={closeDialog}
+        >
+          <p>
+            This replaces this browser’s handovers with the backup. Download a copy of the current
+            saved workspace first. Audio is not in the backup; existing recordings on this device
+            stay available when their identifiers match.
+          </p>
+          <div className="modal-actions">
+            <button type="button" className="button" onClick={closeDialog}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                try {
+                  downloadStoredWorkspace();
+                } catch (cause) {
+                  setError(messageOf(cause));
+                }
+              }}
+            >
+              Back up current workspace
+            </button>
+            <button
+              type="button"
+              className="button button-primary"
+              data-testid="confirm-workspace-restore"
+              onClick={() => {
+                try {
+                  const restored = restoreWorkspaceBackup(dialog.raw);
+                  const current =
+                    restored.handovers.find((state) => state.id === restored.activeId) ??
+                    restored.handovers[0]!;
+                  workspaceRef.current = restored.handovers;
+                  setHandovers(restored.handovers);
+                  setActiveId(current.id);
+                  setSavingBlocked(false);
+                  setStorageWarning(null);
+                  setRole('incoming');
+                  setLanguage(current.participantLanguages.incoming);
+                  setScope(null);
+                  setPendingAudio(null);
+                  setCaptureRevision((value) => value + 1);
+                  setGuided(!current.id.startsWith('demo-'));
+                  setView('handover');
+                  setIncomingText(
+                    [...current.utterances]
+                      .reverse()
+                      .find((utterance) => utterance.role === 'incoming')?.text ?? '',
+                  );
+                  setOutgoingText(
+                    [...current.utterances]
+                      .reverse()
+                      .find((utterance) => utterance.role === 'outgoing')?.text ?? '',
+                  );
+                  setDialog(null);
+                  setError('');
+                  setToast('Workspace restored from the validated backup.');
+                } catch (cause) {
+                  setError(messageOf(cause));
+                }
+              }}
+            >
+              Replace with this backup
             </button>
           </div>
         </Modal>

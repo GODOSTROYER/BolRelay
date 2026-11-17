@@ -6,13 +6,13 @@ export const DEMO_TRANSCRIPTS = {
   'en-IN': {
     outgoing:
       'Send eight Nagpur parcels after 3 PM. Hold two Joshi parcels until the address is confirmed.',
-    mistaken: 'I will send all ten parcels after three.',
+    mistaken: 'I will send all ten parcels after 3 PM.',
     corrected:
       'I will send eight Nagpur parcels after 3 PM. I will hold two Joshi parcels until the address is confirmed.',
     joshiCorrection: 'I will hold two Joshi parcels until the address is confirmed.',
     releaseJ1: 'I will send one parcel J1.',
     harmless:
-      'I will dispatch eight Nagpur packages once it is past three. I will keep two Joshi packages until the address is verified.',
+      'I will dispatch eight Nagpur packages once it is past 3 PM. I will keep two Joshi packages until the address is verified.',
   },
   'hi-IN': {
     outgoing: 'आठ नागपुर पार्सल दोपहर तीन बजे के बाद भेजना। दो जोशी पार्सल पता कन्फर्म होने तक रोक कर रखना।',

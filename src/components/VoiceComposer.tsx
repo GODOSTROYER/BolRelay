@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import type { Language, ParticipantRole } from '../domain/types';
 import { useVoiceCapture, type CapturedAudio } from '../hooks/useVoiceCapture';
+import { ui } from '../lib/language';
+import { stopSpeechOutput } from '../hooks/useSpeechOutput';
 
 export const LANGUAGE_LABELS: Record<Language, string> = {
   'en-IN': 'English',
@@ -32,6 +34,7 @@ interface Props {
   scope?: string;
   clearScope: () => void;
   onExample?: (kind: 'missed' | 'correct') => void;
+  contextKey?: string;
 }
 
 export function VoiceComposer({
@@ -48,6 +51,7 @@ export function VoiceComposer({
   scope,
   clearScope,
   onExample,
+  contextKey = '',
 }: Props) {
   const [menu, setMenu] = useState(false);
   const [languageFocus, setLanguageFocus] = useState(0);
@@ -56,13 +60,18 @@ export function VoiceComposer({
   const languageButton = useRef<HTMLButtonElement>(null);
   const languageOptions = useRef<(HTMLButtonElement | null)[]>([]);
   const languageValues = Object.keys(LANGUAGE_LABELS) as Language[];
-  const voice = useVoiceCapture(language, setText, (audio) => {
-    setAudioUrl((prior) => {
-      if (prior) URL.revokeObjectURL(prior);
-      return URL.createObjectURL(audio.blob);
-    });
-    onAudio(audio);
-  });
+  const voice = useVoiceCapture(
+    language,
+    setText,
+    (audio) => {
+      setAudioUrl((prior) => {
+        if (prior) URL.revokeObjectURL(prior);
+        return URL.createObjectURL(audio.blob);
+      });
+      onAudio(audio);
+    },
+    `${contextKey}:${role}:${scope ?? 'full'}`,
+  );
   useEffect(
     () => () => {
       if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -72,6 +81,10 @@ export function VoiceComposer({
   useEffect(() => {
     if (scope) textArea.current?.focus();
   }, [scope]);
+  useEffect(() => {
+    setAudioUrl('');
+    onAudio(null);
+  }, [contextKey, role, scope, language, onAudio]);
   useEffect(() => {
     if (menu) languageOptions.current[languageFocus]?.focus();
   }, [menu, languageFocus]);
@@ -86,30 +99,27 @@ export function VoiceComposer({
   return (
     <section className="panel composer" aria-labelledby="composer-heading">
       <div className="composer-heading">
-        <h2 id="composer-heading">
-          Say the plan.
-          <br className="small-only" /> Check the understanding.
-        </h2>
-        <p>Capture each person’s words, then resolve what differs.</p>
+        <h2 id="composer-heading">{ui(language, 'heading')}</h2>
+        <p>{ui(language, 'intro')}</p>
       </div>
       <div className="role-tabs" role="tablist" aria-label="Participant">
         <button
           type="button"
           role="tab"
           aria-selected={role === 'outgoing'}
-          disabled={voice.recording || voice.starting}
+          disabled={voice.busy || busy}
           onClick={() => setRole('outgoing')}
         >
-          Outgoing instructions
+          {ui(language, 'outgoing')}
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={role === 'incoming'}
-          disabled={voice.recording || voice.starting}
+          disabled={voice.busy || busy}
           onClick={() => setRole('incoming')}
         >
-          Incoming read-back
+          {ui(language, 'incoming')}
         </button>
       </div>
       <div className="participant-row">
@@ -118,7 +128,10 @@ export function VoiceComposer({
         </div>
         <span>
           <strong>{name}</strong>
-          <span className="muted"> · {role === 'outgoing' ? 'Outgoing' : 'Incoming'}</span>
+          <span className="muted">
+            {' '}
+            · {ui(language, role === 'outgoing' ? 'sender' : 'receiver')}
+          </span>
         </span>
         <div className="language-control">
           <button
@@ -128,7 +141,7 @@ export function VoiceComposer({
             aria-haspopup="listbox"
             aria-expanded={menu}
             aria-controls={menu ? 'spoken-language-menu' : undefined}
-            disabled={voice.recording || voice.starting}
+            disabled={voice.busy || busy}
             onClick={() => (menu ? closeLanguages() : openLanguages())}
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -184,6 +197,8 @@ export function VoiceComposer({
                     }}
                     onClick={() => {
                       setLanguage(value as Language);
+                      setAudioUrl('');
+                      onAudio(null);
                       closeLanguages();
                     }}
                   >
@@ -199,30 +214,36 @@ export function VoiceComposer({
       {scope && (
         <div className="scope-note">
           <span>
-            Clarifying <strong>{scope}</strong>
+            {ui(language, 'clarifyTitle')}: <strong>{scope}</strong>
           </span>
-          <button type="button" onClick={clearScope} aria-label="Clear clarification target">
+          <button
+            type="button"
+            disabled={voice.busy || busy}
+            onClick={clearScope}
+            aria-label="Clear clarification target"
+          >
             <X size={14} />
           </button>
         </div>
       )}
       <label className="sr-only" htmlFor={`${role}-transcript`}>
-        {role === 'incoming' ? 'Incoming read-back' : 'Outgoing instructions'}
+        {ui(language, role === 'incoming' ? 'incoming' : 'outgoing')}
       </label>
       <textarea
         ref={textArea}
         id={`${role}-transcript`}
         data-testid={`${role}-transcript`}
         value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder={
-          role === 'incoming'
-            ? 'In your own words, what will you do with each parcel?'
-            : 'Describe the actions, quantities, times, and anything that must stay on hold.'
-        }
+        lang={language}
+        onChange={(event) => {
+          setText(event.target.value);
+          setAudioUrl('');
+          onAudio(null);
+        }}
+        placeholder={role === 'incoming' ? ui(language, 'inputHint') : ui(language, 'outgoingHint')}
         rows={4}
         maxLength={4000}
-        disabled={busy}
+        disabled={busy || voice.busy}
         spellCheck={false}
       />
       {voice.interim && (
@@ -232,7 +253,12 @@ export function VoiceComposer({
       )}
       {voice.error && (
         <p className="inline-error" role="status">
-          {voice.error}
+          {language === 'en-IN' ? voice.error : ui(language, 'unavailable')}
+        </p>
+      )}
+      {voice.finalizing && (
+        <p className="capture-note" data-testid="capture-status" role="status">
+          {ui(language, 'finishing')}
         </p>
       )}
       {audioUrl && (
@@ -255,12 +281,27 @@ export function VoiceComposer({
       <div className="composer-actions">
         <button
           type="button"
-          className={`button ${voice.recording ? 'button-recording' : ''}`}
-          disabled={busy || voice.starting || !voice.canRecord}
-          onClick={() => (voice.recording ? voice.stop() : void voice.start())}
-          aria-label={voice.recording ? 'Stop recording' : 'Record voice'}
+          className={`button button-primary ${voice.recording ? 'button-recording' : ''}`}
+          data-testid="record-voice"
+          disabled={busy || voice.starting || voice.finalizing || !voice.canRecord}
+          onClick={() => {
+            if (voice.recording) voice.stop();
+            else {
+              stopSpeechOutput();
+              setAudioUrl('');
+              onAudio(null);
+              void voice.start();
+            }
+          }}
+          aria-label={
+            language === 'en-IN'
+              ? voice.recording
+                ? 'Stop recording'
+                : 'Record voice'
+              : ui(language, voice.recording ? 'stop' : 'record')
+          }
         >
-          {voice.starting ? (
+          {voice.starting || voice.finalizing ? (
             <LoaderCircle className="spin" size={18} />
           ) : voice.recording ? (
             <Square size={15} fill="currentColor" />
@@ -268,37 +309,31 @@ export function VoiceComposer({
             <Mic size={19} />
           )}
           {voice.recording
-            ? `Stop · ${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`
-            : 'Record'}
+            ? `${ui(language, 'stop')} · ${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`
+            : ui(language, voice.finalizing ? 'finishing' : 'record')}
         </button>
         <button
           type="button"
-          className="button button-primary"
+          className="button"
           data-testid={role === 'incoming' ? 'check-readback' : 'review-instructions'}
-          disabled={busy || voice.starting || voice.recording || !text.trim()}
+          disabled={busy || voice.busy || !text.trim()}
           onClick={onSubmit}
         >
           {busy ? <LoaderCircle className="spin" size={17} /> : null}
-          {role === 'incoming' ? 'Check read-back' : 'Review instructions'}
+          {ui(language, role === 'incoming' ? 'check' : 'review')}
           <ArrowRight size={17} />
         </button>
       </div>
-      <p className="capture-note">
-        Review the transcript before checking. Browser dictation may use an online service.
-      </p>
-      {!voice.canRecord && (
-        <p className="capture-note">
-          Recording is unavailable in this browser or connection. You can type your words above.
-        </p>
-      )}
+      <p className="capture-note">{ui(language, 'captureNote')}</p>
+      {!voice.canRecord && <p className="capture-note">{ui(language, 'unavailable')}</p>}
       {onExample && role === 'incoming' && (
         <div className="examples">
           <span>Try the example:</span>
-          <button type="button" onClick={() => onExample('missed')}>
+          <button type="button" disabled={voice.busy || busy} onClick={() => onExample('missed')}>
             A missed hold
           </button>
           <span aria-hidden="true">·</span>
-          <button type="button" onClick={() => onExample('correct')}>
+          <button type="button" disabled={voice.busy || busy} onClick={() => onExample('correct')}>
             A correct read-back
           </button>
         </div>

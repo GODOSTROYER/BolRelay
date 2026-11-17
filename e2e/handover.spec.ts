@@ -32,7 +32,7 @@ test('catches the two held parcels, repairs the readback, and confirms current i
   const uncaught: string[] = [];
   page.on('pageerror', (error) => uncaught.push(error.message));
 
-  await enterReadback(page, 'I will send all ten parcels after three.');
+  await enterReadback(page, 'I will send all ten parcels after 3 PM.');
 
   await expect(page.getByTestId('item-NAGPUR')).toHaveAttribute('data-status', 'agreement');
   for (const id of ['J1', 'J2']) {
@@ -68,7 +68,7 @@ test('reports an omitted group without turning it into an explicit contradiction
 test('accepts the supported timing paraphrase and reordered clauses', async ({ page }) => {
   await enterReadback(
     page,
-    'I will hold two Joshi parcels until the address is confirmed. I will send eight Nagpur parcels once it is past three.',
+    'I will hold two Joshi parcels until the address is confirmed. I will send eight Nagpur parcels once it is past 3 PM.',
   );
   for (const id of ['NAGPUR', 'J1', 'J2']) {
     await expect(page.getByTestId(`item-${id}`)).toHaveAttribute('data-status', 'agreement');
@@ -164,7 +164,7 @@ test('the mobile primary workflow remains usable without horizontal scrolling', 
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByTestId('incoming-transcript')).toBeVisible();
-  await enterReadback(page, 'I will send all ten parcels after three.');
+  await enterReadback(page, 'I will send all ten parcels after 3 PM.');
   await expect(page.getByTestId('item-J1')).toHaveAttribute('data-status', 'contradiction');
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
@@ -176,6 +176,7 @@ test('creates and checks a custom handover rather than only the seeded example',
   page,
 }) => {
   await page.getByTestId('new-handover').click();
+  await page.getByRole('button', { name: 'Enter items manually', exact: true }).click();
   await page.getByLabel('Handover name', { exact: true }).fill('Evening dispatch');
   await page.getByLabel('Outgoing person', { exact: true }).fill('Meena');
   await page.getByLabel('Incoming person', { exact: true }).fill('Farida');
@@ -185,11 +186,13 @@ test('creates and checks a custom handover rather than only the seeded example',
   await page.getByTestId('create-handover').click();
   await expect(page.getByRole('heading', { name: 'Evening dispatch', exact: true })).toBeVisible();
   await enterReadback(page, 'I will send four Kolhapur parcels after 5 pm.');
+  await page.getByTestId('full-view').click();
   await expect(page.getByTestId('item-ITEM1')).toHaveAttribute('data-status', 'agreement');
   await page.getByTestId('confirm-ITEM1').click();
   await expect(page.getByTestId('item-ITEM1')).toHaveAttribute('data-confirmed', 'true');
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Evening dispatch', exact: true })).toBeVisible();
+  await page.getByTestId('full-view').click();
   await expect(page.getByTestId('item-ITEM1')).toHaveAttribute('data-confirmed', 'true');
 });
 

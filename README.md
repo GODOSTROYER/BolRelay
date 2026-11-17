@@ -15,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. The app starts with a clearly labelled synthetic example. Use **New handover** for your own items, quantities, units, people, and conditions.
+Open `http://127.0.0.1:5173`. The app starts with a clearly labelled synthetic example. **New handover** accepts a spoken or typed instruction, proposes a structured draft, and requires your review before creating the board. Manual item entry remains available.
 
 For a production build served by the included Node server:
 
@@ -29,15 +29,20 @@ The production server defaults to `http://127.0.0.1:3000`. It reads `.env.local`
 ## What works
 
 - A responsive desktop/mobile handover workspace with custom handovers and editable instructions.
+- Reviewed instruction-to-board creation for bounded English, Hindi, and Marathi statements: one named item group per sentence, explicit quantity/unit/action, and explicit timing or a prerequisite for a hold.
+- A focused recipient view with one clarification at a time, per-item confirmation, and a visible before/after receipt for a changed instruction.
+- Independent saved language preferences for the outgoing and incoming participant; localized critical recipient controls and structured instruction playback when the browser supplies a matching voice.
 - Outgoing instructions and independent incoming read-backs, entered by typing or supported browser dictation.
 - Microphone capture, transcript review, and original recording playback where the browser supports them.
 - Bounded English, Hindi, and Marathi local extraction. Unsupported or ambiguous wording remains unresolved.
 - Four distinct comparison outcomes: **agreement, contradiction, omission, uncertainty**.
 - Targeted clarification and exact transcript quotations.
+- Distinct full read-backs and targeted repairs. A full recheck reopens omitted items; a targeted repair preserves unrelated valid confirmations.
 - Per-item revisions and confirmation tied to the exact instruction and read-back.
 - Selective invalidation: releasing J1 does not release J2 or discard an unrelated valid confirmation.
 - Rejection of late asynchronous extraction, stale confirmations, out-of-order read-backs, forged evidence, and inconsistent imported state.
 - Browser persistence, activity history, structured JSON export/import, and print output.
+- Whole-workspace backup and validated preview before replacement, including restoration of multiple handovers and participant languages. Audio stays on the original device.
 - Deliberate recovery when saved browser data is corrupt or storage is unavailable.
 - Optional authenticated model extraction through a compatible chat/completions API. The model cannot approve or directly change the plan.
 
@@ -49,7 +54,7 @@ The synthetic outgoing instruction is:
 
 The example starts with the incoming person saying:
 
-> I will send all ten parcels after three.
+> I will send all ten parcels after 3 PM.
 
 1. Inspect the two held Joshi items and their source evidence.
 2. Use **A correct read-back**, or enter: “I will send eight Nagpur parcels after 3 PM. I will hold two Joshi parcels until the address is confirmed.”
@@ -63,6 +68,10 @@ See [the demo script](docs/DEMO.md) for additional cases, including Hindi and Ma
 ## Voice and model behavior
 
 Browser audio recording and browser speech recognition are separate capabilities. Dictation support varies by browser and language; it can require a network service supplied by the browser vendor. A declined microphone permission leaves typed entry available. The app never labels typed demo text as a live recording.
+
+Capture waits for recording and recognition finalization before enabling submission. Changing the handover, participant, language, clarification target, or instruction revision cancels an obsolete capture. Editing transcript text detaches its recording from that submission; the edited words are not represented as a verified audio transcript.
+
+Playback uses browser text-to-speech and selects a voice in the chosen language. If no matching voice exists, the app explains the limitation and keeps the text available. It does not substitute English for Hindi or Marathi. Custom item names and free-text prerequisites are retained rather than represented as automatically translated. Navigation and settings are still predominantly English.
 
 The local parser is deliberately bounded. It is not a general language model, certified comprehension check, or measured speech-recognition benchmark. A “Matches” result means the extracted stated actions match the current structured plan; it does not prove that the person understood everything or performed the work.
 
@@ -81,7 +90,7 @@ Configuration names are listed in `.env.example`:
 
 Configure credentials only through your local/deployment secret settings. Never commit them or put them in `VITE_*` variables. The operator enters the **application** token in Settings; the browser keeps it in memory only. Never enter the provider API key in the UI.
 
-The model returns proposed claims, not approvals. The server validates the response schema, item scope, and verbatim source quotes, then supplies trusted revision snapshots. Application rules perform comparison and confirmation. Invalid or unavailable model output produces an explicit error; there is no silent fallback or fabricated success.
+The model receives item identities and aliases, without the expected actions, quantities, times, prerequisites, owners, or prior source evidence. It returns proposed claims, not approvals. The server requires verbatim evidence for each supplied field, checks supported semantic relationships and known ambiguity guards, and supplies trusted revision snapshots. Whole-claim quotations remain in the saved handover. Application rules perform comparison and confirmation. These guards reduce particular failure modes; they are not a measured general guarantee of model accuracy. Invalid or unavailable output produces an explicit error.
 
 The adapter has request-size bounds, method/origin checks, a per-process request budget, a concurrency cap, and timeouts. The in-memory budget is not a distributed rate limiter; a public multi-instance deployment needs an appropriate shared limit and real user authentication.
 
@@ -108,6 +117,8 @@ npm run test:e2e
 An existing Chromium can be selected with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`. CI installs its own browser and runs the complete checks. Browser tests include real UI state transitions; microphone denial and delayed model responses are explicitly mocked. They do not establish real device transcription accuracy or live provider performance.
 
 See [validation status and scenarios](docs/VALIDATION.md) for exact executed results and limitations. The workflow saves browser evidence as an Actions artifact, without committing temporary screenshots or traces into source.
+
+See [the build checklist](docs/BUILD_PROGRESS.md) for completed repairs, open validation gates, and effort estimates.
 
 ## Project structure
 

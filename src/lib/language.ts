@@ -1,0 +1,276 @@
+import type { ClaimField, Finding, HandoverItem, ItemComparison, Language } from '../domain/types';
+
+const copy = {
+  heading: [
+    'Say the plan. Check the next actions.',
+    'योजना बोलें। अगला काम जाँचें।',
+    'योजना बोला. पुढचे काम तपासा.',
+  ],
+  intro: [
+    'Capture each person’s words, then resolve what differs.',
+    'दोनों की बात सुनें, फिर अंतर स्पष्ट करें।',
+    'दोघांचे म्हणणे ऐका आणि फरक स्पष्ट करा.',
+  ],
+  outgoing: ['Outgoing instructions', 'काम सौंपने वाले के निर्देश', 'काम सोपवणाऱ्याच्या सूचना'],
+  incoming: ['Incoming read-back', 'काम लेने वाले की योजना', 'काम स्वीकारणाऱ्याची योजना'],
+  record: ['Record', 'बोलें', 'बोला'],
+  stop: ['Stop', 'रोकें', 'थांबवा'],
+  finishing: ['Finishing recording…', 'रिकॉर्डिंग पूरी हो रही है…', 'रेकॉर्डिंग पूर्ण होत आहे…'],
+  check: ['Check read-back', 'योजना जाँचें', 'योजना तपासा'],
+  review: ['Review instructions', 'निर्देश जाँचें', 'सूचना तपासा'],
+  inputHint: [
+    'In your own words, what will you do with each item?',
+    'अपने शब्दों में बताएं: हर सामान के साथ क्या करेंगे?',
+    'स्वतःच्या शब्दांत सांगा: प्रत्येक वस्तूचे काय कराल?',
+  ],
+  outgoingHint: [
+    'State the item, quantity, action, time and any prerequisite.',
+    'सामान, संख्या, काम, समय और ज़रूरी शर्त बोलें।',
+    'वस्तू, संख्या, काम, वेळ आणि आवश्यक अट सांगा.',
+  ],
+  captureNote: [
+    'Review the captured words. Browser dictation may use an online service.',
+    'लिखे गए शब्द जाँचें। आवाज़ पहचानने के लिए ऑनलाइन सेवा लग सकती है।',
+    'नोंदलेले शब्द तपासा. आवाज ओळखण्यासाठी ऑनलाइन सेवा वापरली जाऊ शकते.',
+  ],
+  unavailable: [
+    'Recording is unavailable here. You can type the transcript.',
+    'यहाँ रिकॉर्डिंग उपलब्ध नहीं है। आप अपनी बात लिख सकते हैं।',
+    'येथे रेकॉर्डिंग उपलब्ध नाही. तुम्ही मजकूर लिहू शकता.',
+  ],
+  listen: ['Listen', 'सुनें', 'ऐका'],
+  listenPlan: ['Listen to the current instructions', 'मौजूदा निर्देश सुनें', 'सध्याच्या सूचना ऐका'],
+  listenQuestion: ['Listen to the question', 'सवाल सुनें', 'प्रश्न ऐका'],
+  speechUnavailable: [
+    'This device has no voice for this language. Read the text or use a device with a matching voice.',
+    'इस भाषा की आवाज़ इस डिवाइस पर नहीं है। लिखी बात पढ़ें या उपयुक्त आवाज़ वाला डिवाइस इस्तेमाल करें।',
+    'या उपकरणावर या भाषेचा आवाज नाही. मजकूर वाचा किंवा योग्य आवाज असलेले उपकरण वापरा.',
+  ],
+  speechFailed: [
+    'Spoken playback failed. The text remains available.',
+    'आवाज़ नहीं चल सकी। लिखी बात उपलब्ध है।',
+    'आवाज ऐकवता आला नाही. मजकूर उपलब्ध आहे.',
+  ],
+  spokenDraft: ['Speak a new handover', 'बोलकर नया काम सौंपें', 'बोलून नवीन काम सोपवा'],
+  draftHelp: [
+    'One named item group per sentence. State quantity and action; use AM/PM for a time and a clear condition for holds.',
+    'हर वाक्य में एक नाम वाला सामान समूह बोलें। संख्या और काम बताएं; समय के साथ सुबह/दोपहर और रोकने की शर्त बताएं।',
+    'प्रत्येक वाक्यात नावासह एक वस्तूंचा गट सांगा. संख्या, काम, वेळेसोबत सकाळ/दुपार आणि थांबवण्याची अट सांगा.',
+  ],
+  draftPlaceholder: [
+    'Send five Pune parcels after 4 PM. Hold two Joshi parcels until the address is confirmed.',
+    'पाँच पुणे पार्सल शाम चार बजे के बाद भेजना। दो जोशी पार्सल पता कन्फर्म होने तक रोक कर रखना।',
+    'पाच पुणे पार्सल दुपारी चार नंतर पाठवा. पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल थांबवा.',
+  ],
+  draftReview: ['Review the proposed handover', 'प्रस्तावित निर्देश जाँचें', 'सुचवलेले निर्देश तपासा'],
+  draftAttest: [
+    'I checked the items, quantities, times and conditions against what was said.',
+    'मैंने सामान, संख्या, समय और शर्तें कही गई बात से मिलाई हैं।',
+    'मी वस्तू, संख्या, वेळ आणि अटी बोललेल्या सूचनांशी पडताळल्या आहेत.',
+  ],
+  create: ['Create reviewed handover', 'जाँचे हुए निर्देश सहेजें', 'तपासलेले निर्देश जतन करा'],
+  editWords: ['Edit the words', 'बात सुधारें', 'मजकूर सुधारा'],
+  manual: ['Enter items manually', 'सामान लिखकर जोड़ें', 'वस्तू लिहून जोडा'],
+  cancel: ['Cancel', 'रद्द करें', 'रद्द करा'],
+  draftProblem: [
+    'Some details are unclear. Use one named group per sentence with an explicit quantity, action and any time or hold condition.',
+    'कुछ जानकारी स्पष्ट नहीं है। हर वाक्य में नाम, संख्या, काम और समय या रोकने की शर्त साफ़ बोलें।',
+    'काही माहिती अस्पष्ट आहे. प्रत्येक वाक्यात नाव, संख्या, काम आणि वेळ किंवा थांबवण्याची अट स्पष्ट सांगा.',
+  ],
+  draftNames: [
+    'Names and custom conditions keep their original wording.',
+    'नाम और अपनी शर्तें मूल शब्दों में रहती हैं।',
+    'नावे आणि स्वतःच्या अटी मूळ शब्दांत राहतात.',
+  ],
+  workerView: ['Guided view', 'आसान दृश्य', 'सोपे दृश्य'],
+  fullView: ['Full board', 'पूरा बोर्ड', 'संपूर्ण फलक'],
+  readyToSpeak: [
+    'Listen to the instructions, then say your next actions in your own words.',
+    'निर्देश सुनें, फिर अपने शब्दों में बताएं कि आगे क्या करेंगे।',
+    'सूचना ऐका आणि स्वतःच्या शब्दांत पुढचे काम सांगा.',
+  ],
+  clarify: ['Clarify read-back', 'योजना स्पष्ट करें', 'योजना स्पष्ट करा'],
+  clarifyTitle: ['A detail needs clarification', 'एक बात स्पष्ट करनी है', 'एक बाब स्पष्ट करायची आहे'],
+  confirmed: ['Confirmed', 'पुष्टि हो गई', 'पुष्टी झाली'],
+  confirm: ['Confirm', 'पुष्टि करें', 'पुष्टी करा'],
+  confirmAll: ['Confirm handover', 'पूरी योजना की पुष्टि करें', 'संपूर्ण योजनेची पुष्टी करा'],
+  matches: ['Matches', 'मेल खाता है', 'जुळते'],
+  unclear: ['Unclear', 'अस्पष्ट', 'अस्पष्ट'],
+  notMentioned: ['Not mentioned', 'बताया नहीं गया', 'उल्लेख नाही'],
+  checkAgain: ['Check again', 'फिर जाँचें', 'पुन्हा तपासा'],
+  legacyRecheck: [
+    'These saved items need a fresh read-back after a check was updated. Your original words and history are preserved.',
+    'जाँच में सुधार के बाद इन सहेजे गए सामानों की योजना फिर बताएं। आपके पुराने शब्द और इतिहास सुरक्षित हैं।',
+    'तपासणी सुधारल्यानंतर या जतन केलेल्या वस्तूंची योजना पुन्हा सांगा. तुमचे मूळ शब्द आणि इतिहास जतन आहेत.',
+  ],
+  waiting: ['Awaiting read-back', 'योजना का इंतज़ार है', 'योजनेची प्रतीक्षा आहे'],
+  matchedTitle: [
+    'The stated actions match the plan',
+    'कहे गए काम निर्देशों से मेल खाते हैं',
+    'सांगितलेले काम सूचनांशी जुळते',
+  ],
+  matchedHelp: [
+    'Review the current instructions, then confirm.',
+    'मौजूदा निर्देश जाँचकर पुष्टि करें।',
+    'सध्याच्या सूचना तपासून पुष्टी करा.',
+  ],
+  completeTitle: ['The handover is confirmed', 'योजना की पुष्टि हो गई', 'योजनेची पुष्टी झाली'],
+  completeHelp: [
+    'Current instructions have matching, confirmed statements. A later change needs a new check.',
+    'मौजूदा निर्देशों से योजना मिली और पुष्टि हुई। निर्देश बदलने पर फिर जाँच ज़रूरी है।',
+    'सध्याच्या सूचनांशी योजना जुळली आणि पुष्टी झाली. सूचना बदलल्यास पुन्हा तपासणी आवश्यक आहे.',
+  ],
+  meaning: [
+    'Confirmation records a stated plan, not proof of completed work.',
+    'पुष्टि कही गई योजना की है; काम पूरा होने का प्रमाण नहीं।',
+    'पुष्टी सांगितलेल्या योजनेची आहे; काम पूर्ण झाल्याचा पुरावा नाही.',
+  ],
+  currentInstruction: ['Current instruction', 'मौजूदा निर्देश', 'सध्याची सूचना'],
+  source: ['Source words', 'मूल शब्द', 'मूळ शब्द'],
+  outgoingChange: ['Outgoing change', 'निर्देश में बदलाव', 'सूचनेतील बदल'],
+  absent: [
+    'This item was not clearly stated in this read-back.',
+    'इस योजना में यह सामान साफ़ नहीं बताया गया।',
+    'या योजनेत या वस्तूचा स्पष्ट उल्लेख नाही.',
+  ],
+  actionBoard: ['Action board', 'काम का बोर्ड', 'कामाचा फलक'],
+  items: ['items', 'सामान', 'वस्तू'],
+  updateInstruction: ['Change to dispatch', 'भेजने का निर्देश दें', 'पाठवण्याची सूचना द्या'],
+  updated: ['Instruction updated', 'निर्देश बदले', 'सूचना बदलली'],
+  needsCheck: [
+    'Resolve the remaining items before confirming.',
+    'पुष्टि से पहले बाकी बातें स्पष्ट करें।',
+    'पुष्टी करण्यापूर्वी उरलेल्या बाबी स्पष्ट करा.',
+  ],
+  progress: ['In progress', 'जारी है', 'सुरू आहे'],
+  complete: ['Complete', 'पूरा हुआ', 'पूर्ण'],
+  optionalNames: [
+    'Handover and participant names (optional)',
+    'योजना और लोगों के नाम (वैकल्पिक)',
+    'योजना आणि व्यक्तींची नावे (ऐच्छिक)',
+  ],
+  title: ['Handover name', 'योजना का नाम', 'योजनेचे नाव'],
+  sender: ['Outgoing person', 'काम सौंपने वाला', 'काम सोपवणारी व्यक्ती'],
+  receiver: ['Incoming person', 'काम लेने वाला', 'काम स्वीकारणारी व्यक्ती'],
+  fullCheck: [
+    'Full recheck: every item must be stated again.',
+    'पूरी जाँच: हर सामान का फिर से उल्लेख करें।',
+    'संपूर्ण तपासणी: प्रत्येक वस्तूचा पुन्हा उल्लेख करा.',
+  ],
+  targetedCheck: [
+    'Targeted repair: other valid confirmations are kept.',
+    'एक सामान की जाँच: बाकी सही पुष्टियाँ बनी रहेंगी।',
+    'एका वस्तूची तपासणी: इतर योग्य पुष्ट्या कायम राहतील.',
+  ],
+} as const;
+
+export type CopyKey = keyof typeof copy;
+export function ui(language: Language, key: CopyKey): string {
+  return copy[key][language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0];
+}
+
+export function conditionLabel(value: string, language: Language): string {
+  return value === 'address confirmed'
+    ? { 'en-IN': 'address confirmed', 'hi-IN': 'पता कन्फर्म हो', 'mr-IN': 'पत्त्याची पुष्टी होईल' }[
+        language
+      ]
+    : value;
+}
+export function unitLabel(value: string, language: Language): string {
+  const labels: Record<string, [string, string, string]> = {
+    parcel: ['parcels', 'पार्सल', 'पार्सल'],
+    box: ['boxes', 'बॉक्स', 'बॉक्स'],
+    carton: ['cartons', 'कार्टन', 'कार्टन'],
+    piece: ['pieces', 'नग', 'नग'],
+  };
+  return labels[value]?.[language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0] ?? value;
+}
+export function describeInstruction(item: HandoverItem, language: Language): string {
+  const actions = {
+    dispatch: ['Dispatch', 'भेजें', 'पाठवा'],
+    hold: ['Hold', 'रोकें', 'थांबवा'],
+    pack: ['Pack', 'पैक करें', 'पॅक करा'],
+    collect: ['Collect', 'ले लें', 'घ्या'],
+  };
+  const action = actions[item.action][language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0];
+  const time = item.notBefore
+    ? ` ${language === 'en-IN' ? 'at or after' : language === 'hi-IN' ? 'समय या उसके बाद:' : 'या वेळेला किंवा नंतर:'} ${item.notBefore}`
+    : '';
+  const condition = item.condition
+    ? `; ${language === 'en-IN' ? 'prerequisite:' : language === 'hi-IN' ? 'ज़रूरी शर्त:' : 'आवश्यक अट:'} ${conditionLabel(item.condition, language)}`
+    : '';
+  const owner = item.owner
+    ? `; ${language === 'en-IN' ? 'responsible:' : language === 'hi-IN' ? 'जिम्मेदार:' : 'जबाबदार:'} ${item.owner}`
+    : '';
+  return `${item.label}: ${item.quantity} ${unitLabel(item.unit, language)}. ${action}${time}${condition}${owner}.`;
+}
+
+export function comparisonLabel(result: ItemComparison | undefined, language: Language): string {
+  if (!result) return ui(language, 'waiting');
+  if (result.confirmed) return ui(language, 'confirmed');
+  if (result.stale) return ui(language, 'checkAgain');
+  return ui(
+    language,
+    {
+      agreement: 'matches',
+      contradiction: 'clarifyTitle',
+      omission: 'notMentioned',
+      uncertainty: 'unclear',
+    }[result.status] as CopyKey,
+  );
+}
+
+const fieldNames: Record<ClaimField, [string, string, string]> = {
+  object: ['item', 'सामान', 'वस्तू'],
+  quantity: ['quantity', 'संख्या', 'संख्या'],
+  unit: ['unit', 'इकाई', 'एकक'],
+  action: ['action', 'काम', 'काम'],
+  notBefore: ['time', 'समय', 'वेळ'],
+  condition: ['prerequisite', 'ज़रूरी शर्त', 'आवश्यक अट'],
+  owner: ['responsible person', 'जिम्मेदार व्यक्ति', 'जबाबदार व्यक्ती'],
+};
+export function fieldName(field: ClaimField, language: Language): string {
+  return fieldNames[field][language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0];
+}
+export function findingLabel(finding: Finding, language: Language): string {
+  if (language === 'en-IN') return finding.message;
+  const field = fieldName(finding.field, language);
+  return language === 'hi-IN'
+    ? `${field}: ${finding.status === 'contradiction' ? 'निर्देश से मेल नहीं खाता।' : finding.status === 'omission' ? 'स्पष्ट नहीं बताया गया।' : 'साफ़ समझ नहीं आया।'}`
+    : `${field}: ${finding.status === 'contradiction' ? 'सूचनेशी जुळत नाही.' : finding.status === 'omission' ? 'स्पष्ट उल्लेख नाही.' : 'स्पष्ट समजले नाही.'}`;
+}
+export function clarificationQuestion(
+  item: HandoverItem,
+  result: ItemComparison,
+  language: Language,
+): string {
+  const field = result.findings[0]?.field;
+  const questions: Record<ClaimField, [string, string, string]> = {
+    object: [
+      'Which item do you mean? Say its name or printed ID.',
+      'कौन सा सामान है? उसका नाम या लिखा हुआ आईडी बोलें।',
+      'कोणती वस्तू आहे? तिचे नाव किंवा छापलेला आयडी सांगा.',
+    ],
+    quantity: ['How many, and in which unit?', 'कितने, और किस इकाई में?', 'किती, आणि कोणत्या एककात?'],
+    unit: ['Which unit do you mean?', 'किस इकाई की बात कर रहे हैं?', 'कोणते एकक आहे?'],
+    action: [
+      'What will you do, and what must happen first?',
+      'क्या करेंगे, और उससे पहले क्या होना ज़रूरी है?',
+      'काय कराल, आणि त्याआधी काय होणे आवश्यक आहे?',
+    ],
+    notBefore: [
+      'At what time may this start? Include morning or afternoon.',
+      'यह काम कब शुरू हो सकता है? सुबह या दोपहर भी बताएं।',
+      'हे काम किती वाजता सुरू होऊ शकते? सकाळ की दुपार तेही सांगा.',
+    ],
+    condition: [
+      'What must happen before this can proceed?',
+      'आगे बढ़ने से पहले क्या होना ज़रूरी है?',
+      'पुढे जाण्याआधी काय होणे आवश्यक आहे?',
+    ],
+    owner: ['Who is responsible for this?', 'इसकी जिम्मेदारी किसकी है?', 'याची जबाबदारी कोणाची आहे?'],
+  };
+  if (result.stale || !field)
+    return `${item.label}. ${ui(language, result.stale ? 'updated' : 'readyToSpeak')}. ${ui(language, 'inputHint')}`;
+  return `${item.label}. ${questions[field][language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0]}`;
+}

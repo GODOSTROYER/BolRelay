@@ -41,6 +41,7 @@ export const handoverItemSchema = z.object({
   owner: shortText.nullable(),
   revision,
   evidence: z.array(evidenceSchema).max(50),
+  evidenceFields: z.array(field).max(7).optional(),
 });
 
 export const parsedClaimSchema = z.object({
@@ -74,6 +75,8 @@ const parsedShape = {
   role: z.enum(['outgoing', 'incoming']),
   language: languageSchema,
   parser: z.enum(['local-rules', 'model']),
+  readbackMode: z.enum(['full', 'targeted']).optional(),
+  scopeItemIds: z.array(identifier).min(1).max(100).optional(),
   itemRevisions: z.record(identifier, revision),
   claims: z.array(parsedClaimSchema).max(100),
   issues: z.array(parseIssueSchema).max(100),
@@ -82,56 +85,75 @@ const parsedShape = {
 export const parsedTranscriptSchema: z.ZodType<ParsedTranscript> = z.object(parsedShape);
 const utteranceSchema = z.object({ ...parsedShape, createdAt: timestamp });
 
-export const handoverStateSchema: z.ZodType<HandoverState> = z.object({
-  schemaVersion: z.literal(1),
-  id: identifier,
-  title: z.string().trim().min(1).max(160),
-  outgoingName: z.string().trim().min(1).max(100),
-  incomingName: z.string().trim().min(1).max(100),
-  language: languageSchema,
-  items: z.array(handoverItemSchema).max(100),
-  utterances: z.array(utteranceSchema).max(2_000),
-  readbacks: z.record(
-    identifier,
-    z.object({
-      itemId: identifier,
-      itemRevision: revision,
-      utteranceId: identifier,
-      claims: z.array(parsedClaimSchema).max(100),
-      issues: z.array(parseIssueSchema).max(100),
-      createdAt: timestamp,
-    }),
-  ),
-  confirmations: z.record(
-    identifier,
-    z.object({
-      itemId: identifier,
-      itemRevision: revision,
-      utteranceId: identifier,
-      actor: z.string().trim().min(1).max(100),
-      createdAt: timestamp,
-    }),
-  ),
-  events: z
-    .array(
+export const handoverStateSchema: z.ZodType<HandoverState> = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: identifier,
+    title: z.string().trim().min(1).max(160),
+    outgoingName: z.string().trim().min(1).max(100),
+    incomingName: z.string().trim().min(1).max(100),
+    language: languageSchema,
+    participantLanguages: z
+      .object({ outgoing: languageSchema, incoming: languageSchema })
+      .optional(),
+    items: z.array(handoverItemSchema).max(100),
+    utterances: z.array(utteranceSchema).max(2_000),
+    readbacks: z.record(
+      identifier,
       z.object({
-        id: identifier,
-        type: z.enum([
-          'created',
-          'readback-recorded',
-          'item-revised',
-          'item-confirmed',
-          'item-added',
-          'item-removed',
-        ]),
-        itemIds: z.array(identifier).max(100),
-        message: z.string().max(1_000),
+        itemId: identifier,
+        itemRevision: revision,
+        utteranceId: identifier,
+        claims: z.array(parsedClaimSchema).max(100),
+        issues: z.array(parseIssueSchema).max(100),
         createdAt: timestamp,
-        before: z.array(handoverItemSchema).max(100).optional(),
-        after: z.array(handoverItemSchema).max(100).optional(),
       }),
-    )
-    .max(5_000),
-  createdAt: timestamp,
-  updatedAt: timestamp,
-});
+    ),
+    confirmations: z.record(
+      identifier,
+      z.object({
+        itemId: identifier,
+        itemRevision: revision,
+        utteranceId: identifier,
+        actor: z.string().trim().min(1).max(100),
+        createdAt: timestamp,
+      }),
+    ),
+    recheckNotice: z
+      .object({
+        reason: z.literal('legacy-interpretation'),
+        itemIds: z.array(identifier).min(1).max(100),
+        createdAt: timestamp,
+      })
+      .optional(),
+    events: z
+      .array(
+        z.object({
+          id: identifier,
+          type: z.enum([
+            'created',
+            'readback-recorded',
+            'item-revised',
+            'item-confirmed',
+            'item-added',
+            'item-removed',
+            'interpretation-upgraded',
+          ]),
+          itemIds: z.array(identifier).max(100),
+          message: z.string().max(1_000),
+          createdAt: timestamp,
+          before: z.array(handoverItemSchema).max(100).optional(),
+          after: z.array(handoverItemSchema).max(100).optional(),
+        }),
+      )
+      .max(5_000),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .transform((state) => ({
+    ...state,
+    participantLanguages: state.participantLanguages ?? {
+      outgoing: state.language,
+      incoming: state.language,
+    },
+  }));

@@ -8,13 +8,21 @@ import {
   TriangleAlert,
   Volume2,
 } from 'lucide-react';
-import type { HandoverState, ItemComparison } from '../domain/types';
+import type { HandoverState, ItemComparison, Language } from '../domain/types';
 import { getAudio } from '../lib/persistence';
-import { describeItem } from './ActionBoard';
+import {
+  clarificationQuestion,
+  describeInstruction,
+  fieldName,
+  findingLabel,
+  ui,
+} from '../lib/language';
+import { SpeakButton } from './SpeakButton';
 
 export function AudioClip({ utteranceId }: { utteranceId: string }) {
   const [src, setSrc] = useState('');
   useEffect(() => {
+    setSrc('');
     let live = true;
     let url = '';
     void getAudio(utteranceId)
@@ -42,10 +50,14 @@ export function ComparisonPanel({
   state,
   comparisons,
   onClarify,
+  language = 'en-IN',
+  busy = false,
 }: {
   state: HandoverState;
   comparisons: ItemComparison[];
   onClarify: (itemId: string) => void;
+  language?: Language;
+  busy?: boolean;
 }) {
   const issues = comparisons.filter((result) => result.status !== 'agreement' || result.stale);
   const hasReadback = state.utterances.some((utterance) => utterance.role === 'incoming');
@@ -54,11 +66,8 @@ export function ComparisonPanel({
       <section className="waiting-panel">
         <CircleHelp size={23} />
         <div>
-          <h3>What will the incoming person do?</h3>
-          <p>
-            Ask them to explain the plan in their own words. BolRelay compares it with each
-            instruction.
-          </p>
+          <h3>{ui(language, 'inputHint')}</h3>
+          <p>{ui(language, 'readyToSpeak')}</p>
         </div>
       </section>
     );
@@ -67,10 +76,12 @@ export function ComparisonPanel({
       <section className="agreement-panel" role="status">
         <CheckCircle2 size={25} />
         <div>
-          <h3>The stated actions match the plan</h3>
+          <h3>{ui(language, 'matchedTitle')}</h3>
           <p>
-            Review the action board and confirm each item. A later instruction change will reopen
-            only the affected items.
+            {ui(
+              language,
+              comparisons.every((result) => result.confirmed) ? 'completeHelp' : 'matchedHelp',
+            )}
           </p>
         </div>
       </section>
@@ -80,7 +91,9 @@ export function ComparisonPanel({
       <div className="comparison-heading">
         <TriangleAlert size={24} />
         <h2 id="comparison-title">
-          {issues.length} {issues.length === 1 ? 'item needs' : 'items need'} clarification
+          {language === 'en-IN'
+            ? `${issues.length} ${issues.length === 1 ? 'item needs' : 'items need'} clarification`
+            : `${issues.length} ${ui(language, 'items')} · ${ui(language, 'clarifyTitle')}`}
         </h2>
       </div>
       {issues.map((result, index) => {
@@ -98,8 +111,10 @@ export function ComparisonPanel({
                 <h3>{item.label}</h3>
                 <span>
                   {result.stale
-                    ? 'The instruction changed after this read-back'
-                    : (result.findings[0]?.message ?? 'Explain this item again')}
+                    ? ui(language, 'updated')
+                    : result.findings[0]
+                      ? findingLabel(result.findings[0], language)
+                      : ui(language, 'inputHint')}
                 </span>
               </div>
               <ChevronDown size={17} />
@@ -108,36 +123,49 @@ export function ComparisonPanel({
               <div className="evidence-quote">
                 <ArrowUpRight size={17} />
                 <div>
-                  <span className="quote-label">{source ? 'Outgoing' : 'Current instruction'}</span>
-                  <p>{source?.text || `${item.quantity} ${item.unit}: ${describeItem(item)}.`}</p>
+                  <span className="quote-label">
+                    {source
+                      ? item.evidenceFields?.length
+                        ? `${ui(language, 'outgoingChange')}: ${item.evidenceFields.map((field) => fieldName(field, language)).join(', ')}`
+                        : ui(language, 'source')
+                      : ui(language, 'currentInstruction')}
+                  </span>
+                  <p>{source?.text || describeInstruction(item, language)}</p>
                   {source && <AudioClip utteranceId={source.utteranceId} />}
                 </div>
               </div>
               <div className="evidence-quote">
                 <ArrowDownLeft size={17} />
                 <div>
-                  <span className="quote-label">Incoming</span>
-                  <p>{spoken || 'This item was not clearly mentioned in the latest read-back.'}</p>
+                  <span className="quote-label">{ui(language, 'incoming')}</span>
+                  <p>{spoken || ui(language, 'absent')}</p>
                   {readback && <AudioClip utteranceId={readback.utteranceId} />}
                 </div>
               </div>
               {result.findings.length > 1 && (
                 <ul className="finding-list">
                   {result.findings.slice(1).map((finding) => (
-                    <li key={finding.id}>{finding.message}</li>
+                    <li key={finding.id}>{findingLabel(finding, language)}</li>
                   ))}
                 </ul>
               )}
               <p className="clarification-question">
-                {result.clarification || `What will you do with ${item.label}?`}
+                {clarificationQuestion(item, result, language)}
               </p>
+              <SpeakButton
+                text={clarificationQuestion(item, result, language)}
+                language={language}
+                contextKey={`${state.id}:${item.id}:${item.revision}:${readback?.utteranceId ?? ''}`}
+                label={ui(language, 'listenQuestion')}
+              />
               <button
                 type="button"
                 className="button button-small"
                 data-testid={`clarify-${item.id}`}
+                disabled={busy}
                 onClick={() => onClarify(item.id)}
               >
-                Clarify read-back
+                {ui(language, 'clarify')}
               </button>
             </div>
           </details>

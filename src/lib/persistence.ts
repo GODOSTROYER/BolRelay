@@ -4,7 +4,9 @@ import { restoreHandover } from '../domain/engine';
 import type { HandoverState } from '../domain/types';
 
 export const STORAGE_KEY = 'bolrelay.workspace.v1';
-const MAX_WORKSPACE_BYTES = 4_000_000;
+export const MAX_WORKSPACE_CHARACTERS = 4_000_000;
+// UTF-8 can use three bytes per UTF-16 code unit for Hindi/Marathi text.
+const MAX_WORKSPACE_FILE_BYTES = MAX_WORKSPACE_CHARACTERS * 3;
 const workspaceSchema = z.object({
   version: z.literal(1),
   handovers: z.array(handoverStateSchema).max(40),
@@ -17,21 +19,57 @@ export interface WorkspaceSnapshot {
   warning: string | null;
 }
 
+/** Pure validation used for both local persistence and an explicit backup restore. */
+export function parseWorkspaceBackup(raw: string): WorkspaceSnapshot {
+  if (raw.length > MAX_WORKSPACE_CHARACTERS)
+    throw new Error('This workspace backup exceeds the supported 4 million character limit.');
+  const data = workspaceSchema.parse(JSON.parse(raw));
+  if (new Set(data.handovers.map((handover) => handover.id)).size !== data.handovers.length)
+    throw new Error('This workspace backup contains duplicate handover identifiers.');
+  const handovers = data.handovers.map(restoreHandover);
+  return {
+    handovers,
+    activeId: handovers.some((handover) => handover.id === data.activeId)
+      ? data.activeId
+      : (handovers[0]?.id ?? null),
+    warning: null,
+  };
+}
+
+/** Reads a workspace backup without changing either the current UI or saved data. */
+export async function importWorkspaceBackup(file: File): Promise<WorkspaceSnapshot> {
+  if (file.size > MAX_WORKSPACE_FILE_BYTES)
+    throw new Error('Choose a BolRelay workspace backup no larger than 12 MB.');
+  try {
+    return parseWorkspaceBackup(await file.text());
+  } catch {
+    throw new Error(
+      'This is not a valid BolRelay workspace backup. Your current workspace has not changed.',
+    );
+  }
+}
+
+/** Explicit replacement only: validate the complete backup before touching saved data. */
+export function restoreWorkspaceBackup(raw: string): WorkspaceSnapshot {
+  const restored = parseWorkspaceBackup(raw);
+  const serialized = JSON.stringify({
+    version: 1,
+    handovers: restored.handovers,
+    activeId: restored.activeId,
+  });
+  if (serialized.length > MAX_WORKSPACE_CHARACTERS)
+    throw new Error(
+      'This restored workspace is too large to save. Your current workspace has not changed.',
+    );
+  localStorage.setItem(STORAGE_KEY, serialized);
+  return restored;
+}
+
 export function readWorkspace(): WorkspaceSnapshot {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { handovers: [], activeId: null, warning: null };
-    if (raw.length > MAX_WORKSPACE_BYTES) throw new Error('size');
-    const data = workspaceSchema.parse(JSON.parse(raw));
-    if (new Set(data.handovers.map((h) => h.id)).size !== data.handovers.length)
-      throw new Error('duplicate');
-    return {
-      handovers: data.handovers.map(restoreHandover),
-      activeId: data.handovers.some((h) => h.id === data.activeId)
-        ? data.activeId
-        : (data.handovers[0]?.id ?? null),
-      warning: null,
-    };
+    return parseWorkspaceBackup(raw);
   } catch {
     return {
       handovers: [],
@@ -50,11 +88,11 @@ export function writeWorkspace(
     const current = readWorkspace();
     if (current.warning) return { ok: false, error: current.warning };
     const data = workspaceSchema.parse({ version: 1, handovers, activeId });
-    for (const handover of data.handovers) restoreHandover(handover);
+    data.handovers = data.handovers.map(restoreHandover);
     if (new Set(handovers.map((h) => h.id)).size !== handovers.length)
       throw new Error('Duplicate handover identifiers.');
     const serialized = JSON.stringify(data);
-    if (serialized.length > MAX_WORKSPACE_BYTES)
+    if (serialized.length > MAX_WORKSPACE_CHARACTERS)
       return {
         ok: false,
         error: 'This workspace is full. Export and remove older handovers to keep saving.',

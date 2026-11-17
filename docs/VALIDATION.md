@@ -54,7 +54,15 @@ For the selected scenario families, create three human-reviewed variants each: o
 
 Label the intended final state before evaluating. Report exact counts, false alarms on equivalent wording, missed conditions, object/owner attribution, clarification turns, stale-confirmation failures, and latency. Do not combine a deterministic text test and a mocked speech event into a claim about live speech performance.
 
-## Execution record
+## Current repair wave
+
+The follow-up review added explicit tests for conflicting actions, unknown objects within a targeted repair, ambiguous or contradictory time periods, negative and approximate quantities, unsupported compound counts, model field evidence, full versus targeted read-backs, outgoing source integrity, participant languages, and workspace recovery. Fresh-board tests use names and quantities outside the seeded example and reject tampered reviewed drafts.
+
+Capture and speech-output tests use controlled browser-API doubles to exercise finalization order, cancellation, delayed callbacks, context changes, unavailable voices, playback failure, and timeouts. The browser recording scenario uses synthetic audio to verify application storage/playback wiring. These tests do not measure real speech recognition or human comprehension.
+
+The final integrated local gate passed on 17 November 2026: **202 tests across 10 files**, TypeScript, and production bundling. Playwright discovered 28 browser cases. Chromium and production HTTP results for this wave will be recorded after CI execution; discovery is not an execution result. The earlier results below describe the earlier commit only.
+
+## Earlier execution record
 
 Verified on 17 November 2026 in the private repository's GitHub Actions runner, using Node.js 24 and Playwright Chromium:
 
