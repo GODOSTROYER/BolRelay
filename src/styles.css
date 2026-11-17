@@ -2668,6 +2668,22 @@ strong {
   margin-top: 18px;
   border-top: 1px solid var(--border);
 }
+.guide-instructions {
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.guide-instructions summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.guide-instructions ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+.guide-instructions li + li {
+  margin-top: 8px;
+}
 .guide-current > p {
   margin-block: 8px 14px;
 }

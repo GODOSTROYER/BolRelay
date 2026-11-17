@@ -40,6 +40,7 @@ const copy = {
   ],
   listen: ['Listen', 'सुनें', 'ऐका'],
   listenPlan: ['Listen to the current instructions', 'मौजूदा निर्देश सुनें', 'सध्याच्या सूचना ऐका'],
+  readPlan: ['Read the current instructions', 'मौजूदा निर्देश पढ़ें', 'सध्याच्या सूचना वाचा'],
   listenQuestion: ['Listen to the question', 'सवाल सुनें', 'प्रश्न ऐका'],
   speechUnavailable: [
     'This device has no voice for this language. Read the text or use a device with a matching voice.',
@@ -176,13 +177,14 @@ export function conditionLabel(value: string, language: Language): string {
       ]
     : value;
 }
-export function unitLabel(value: string, language: Language): string {
+export function unitLabel(value: string, language: Language, quantity?: number): string {
   const labels: Record<string, [string, string, string]> = {
     parcel: ['parcels', 'पार्सल', 'पार्सल'],
     box: ['boxes', 'बॉक्स', 'बॉक्स'],
     carton: ['cartons', 'कार्टन', 'कार्टन'],
     piece: ['pieces', 'नग', 'नग'],
   };
+  if (language === 'en-IN' && quantity === 1 && labels[value]) return value;
   return labels[value]?.[language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0] ?? value;
 }
 export function describeInstruction(item: HandoverItem, language: Language): string {
@@ -202,7 +204,7 @@ export function describeInstruction(item: HandoverItem, language: Language): str
   const owner = item.owner
     ? `; ${language === 'en-IN' ? 'responsible:' : language === 'hi-IN' ? 'जिम्मेदार:' : 'जबाबदार:'} ${item.owner}`
     : '';
-  return `${item.label}: ${item.quantity} ${unitLabel(item.unit, language)}. ${action}${time}${condition}${owner}.`;
+  return `${item.label}: ${item.quantity} ${unitLabel(item.unit, language, item.quantity)}. ${action}${time}${condition}${owner}.`;
 }
 
 export function comparisonLabel(result: ItemComparison | undefined, language: Language): string {

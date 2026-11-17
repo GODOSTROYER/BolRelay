@@ -30,7 +30,7 @@ The production server defaults to `http://127.0.0.1:3000`. It reads `.env.local`
 
 - A responsive desktop/mobile handover workspace with custom handovers and editable instructions.
 - Reviewed instruction-to-board creation for bounded English, Hindi, and Marathi statements: one named item group per sentence, explicit quantity/unit/action, and explicit timing or a prerequisite for a hold.
-- A focused recipient view with one clarification at a time, per-item confirmation, and a visible before/after receipt for a changed instruction.
+- A focused recipient view with one clarification at a time, per-item confirmation, a readable instruction fallback, and a visible before/after receipt for a changed instruction.
 - Independent saved language preferences for the outgoing and incoming participant; localized critical recipient controls and structured instruction playback when the browser supplies a matching voice.
 - Outgoing instructions and independent incoming read-backs, entered by typing or supported browser dictation.
 - Microphone capture, transcript review, and original recording playback where the browser supports them.

@@ -65,6 +65,18 @@ export function RecipientGuide({
         label={ui(language, 'listenPlan')}
         testId="listen-current-plan"
       />
+      <details
+        className="guide-instructions"
+        data-testid="read-current-instructions"
+        key={`${state.id}:${language}`}
+      >
+        <summary>{ui(language, 'readPlan')}</summary>
+        <ul>
+          {state.items.map((entry) => (
+            <li key={entry.id}>{describeInstruction(entry, language)}</li>
+          ))}
+        </ul>
+      </details>
       {!complete && heard && item && current && (
         <div className="guide-current">
           <strong>{item.label}</strong>

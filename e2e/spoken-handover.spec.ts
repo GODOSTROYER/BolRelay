@@ -52,6 +52,13 @@ test('typed transcript creates fresh reviewed items and supports distinct full a
   await expect(page.getByTestId('spoken-draft-preview')).toContainText('Pune');
   await expect(page.getByTestId('spoken-draft-preview')).toContainText('J7');
   await createFromReviewedDraft(page);
+  const readableInstructions = page.getByTestId('read-current-instructions');
+  await readableInstructions.locator('summary').click();
+  await expect(readableInstructions).toHaveAttribute('open', '');
+  await expect(readableInstructions).toContainText(/Pune:\s*3 parcels.*16:00/s);
+  await expect(readableInstructions).toContainText(/J7:.*Hold.*address confirmed/s);
+  await readableInstructions.locator('summary').click();
+  await expect(readableInstructions).not.toHaveAttribute('open', '');
   const created = await activeState(page);
   expect(
     created.items.map(({ id, label, quantity, action, notBefore, condition }) => ({
@@ -228,6 +235,16 @@ for (const viewport of [
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
       ).toBeLessThanOrEqual(1);
+      if (viewport.width === 390) {
+        const readableInstructions = page.getByTestId('read-current-instructions');
+        await readableInstructions.locator('summary').click();
+        await expect(readableInstructions).toHaveAttribute('open', '');
+        await expect(readableInstructions).toContainText('16:00');
+        await screenshot(page, testInfo, 'guided-read-instructions-390x844.png', true);
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+        ).toBeLessThanOrEqual(1);
+      }
       await expect(page.locator('vite-error-overlay')).toHaveCount(0);
       expect(errors).toEqual([]);
     },
