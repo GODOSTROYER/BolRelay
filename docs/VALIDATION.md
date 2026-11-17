@@ -6,7 +6,7 @@ BolRelay is an experimental handover aid. It compares stated actions with record
 
 - The included people, parcels, utterances, and operational incidents are synthetic.
 - Automated text tests check application behavior; they are not speech-recognition accuracy measurements.
-- A mocked browser speech event checks UI wiring only. It does not validate a microphone, recording quality, accents, noise, negation recognition, or a speech provider.
+- Mocked microphone denial and delayed model replies check UI behavior only. They do not validate a microphone, recording quality, accents, noise, negation recognition, or a speech provider.
 - Browser permission and speech-recognition availability vary. A typed path must remain available.
 - Product reliability and user benefit require additional observations with people who actually exchange work.
 - An offline/bounded parser must be labelled as such. Passing its supported examples does not establish general multilingual understanding.
@@ -26,7 +26,7 @@ BolRelay is an experimental handover aid. It compares stated actions with record
 
 ## Twelve synthetic scenario families
 
-These are test specifications, not claims of successful execution. Implementation-level results are recorded separately below.
+These families guide coverage; they are not a completed human evaluation. Implementation-level results are recorded separately below.
 
 | ID  | Scenario                                                                                       | Expected behavior                                                                | Important adverse variant                                                        |
 | --- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -56,23 +56,35 @@ Label the intended final state before evaluating. Report exact counts, false ala
 
 ## Execution record
 
-Observed during the initial build on 17 November 2026:
+Verified on 17 November 2026 in the private repository's GitHub Actions runner, using Node.js 24 and Playwright Chromium:
 
-| Check                                                                     | Observed result                                | Scope                                                                                                                         |
-| ------------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`                                                       | Passed                                         | TypeScript application, server, and test code                                                                                 |
-| `npm test -- --run e2e/domain-invariants.test.ts e2e/persistence.test.ts` | 25 passed                                      | Independent adversarial interpretation, stale-state/evidence integrity, and storage recovery tests                            |
-| `npm test -- --run e2e/server-concurrency.test.ts`                        | 1 passed                                       | Six simultaneous body reads admit exactly two mocked provider calls, reject four with 429, and release slots after completion |
-| `npm run build`                                                           | Passed during integration                      | Production bundling and TypeScript gate                                                                                       |
-| `npm run test:e2e`                                                        | Browser launch blocked before page interaction | Eleven implemented browser tests discovered; no rendered-flow pass is claimed from this attempt                               |
+- Code commit: [`54f5f4f15584b629fdff043b0a47ff96f68932ad`](https://github.com/GODOSTROYER/BolRelay/commit/54f5f4f15584b629fdff043b0a47ff96f68932ad).
+- Complete passing run: [44003041257](https://github.com/GODOSTROYER/BolRelay/actions/runs/44003041257).
+- Job: `133771558186`; browser evidence artifact: `14292229969` (`browser-verification-evidence`). Artifacts follow the workflow's seven-day retention policy.
 
-The initial Playwright attempt could not find its matching downloaded browser. The matching-browser download was unavailable in the build environment. A subsequent run using the installed Chromium executable also stopped before rendering: Chromium could not create its process-singleton socket (`Operation not permitted`) and exited. This is an execution-environment limitation, not evidence that the eleven product workflows passed or failed.
+| Check                     | Observed result                    | Scope                                                                                                                                                               |
+| ------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`       | Passed                             | TypeScript application, server, and test code                                                                                                                       |
+| `npm test`                | **66 passed across 6 files**       | Domain comparison/revision rules, local text extraction, source/state integrity, API boundaries, persistence, and concurrency                                       |
+| `npm run build`           | Passed                             | Production Vite bundle and TypeScript gate                                                                                                                          |
+| `npm run test:production` | Passed; **0 external model calls** | Actual Node production entry point: HTML, JavaScript asset, response headers, status/health endpoints, disabled model path, method handling, and unknown API routes |
+| `npm run test:e2e`        | **16 passed**                      | Thirteen Chromium workflow/keyboard cases and three visual-evidence cases; no failed or skipped cases                                                               |
 
-The browser suite is ready for an environment that permits Chromium, including the private repository's CI. It now contains 15 tests: twelve workflow cases and three visual-evidence cases. The workflow cases cover the complete correction flow, omissions, harmless paraphrases, selective J1 release, persistence, export, custom handovers, mobile overflow, unreadable saved data, unchanged outgoing instructions preserving confirmations, a mocked microphone-permission denial, and a mocked delayed model response after switching handovers.
+The 66-test total includes 25 independent interpretation/integrity/persistence cases and one simultaneous-body-read regression. In the concurrency regression, six requests race body parsing; two mocked provider calls are admitted, four receive HTTP 429, and completion frees capacity for a later request. These counts are subsets of the 66 tests, not additional tests.
 
-The visual-evidence cases produce six PNGs: initial and revised desktop states at 1536 × 1024, plus initial and confirmed full-page states at 390 × 844 and 320 × 740. They also check title, meaningful page content, framework error overlays, console health, and horizontal overflow. These are browser viewport checks, not tests on physical mobile hardware. No screenshot fidelity claim is made until the images are actually produced and inspected.
+The browser cases exercise the complete discrepancy → correction → confirmation flow, first-time omissions, harmless paraphrases, selective J1 release, persistence after reload, JSON export, custom handovers, mobile overflow, malformed saved data, unchanged outgoing instructions preserving confirmations, mobile navigation and language-picker keyboard behavior, a mocked microphone-permission denial, and a mocked delayed model response after switching handovers. Keyboard coverage includes focus containment, return focus, Escape, arrow keys, Home/End, and selection; it is not a complete accessibility audit.
 
-The browser tests that simulate microphone denial and model replies are named accordingly. They do not make live provider calls or validate speech recognition. Real microphone capture, speech-provider recognition, deployed model quality, and field user benefit remain unverified.
+### Rendered evidence and visual review
+
+The visual cases generated six PNGs: initial and selectively revised desktop states at 1536 × 1024, plus initial and confirmed full-page states at 390 × 844 and 320 × 740. Their assertions check title, meaningful page content, framework error overlays, page console health, state transitions, and narrow-screen horizontal overflow. These are browser viewport checks, not tests on physical mobile hardware.
+
+All six images from [run 44002650762](https://github.com/GODOSTROYER/BolRelay/actions/runs/44002650762), artifact `14292967347`, were visually inspected, with the desktop compared against the design concept. Review confirmed readable typography, complete desktop/narrow layouts, the selective J1 state, corrected clipping of the inactive skip link, and the mobile toast's usable width. The final passing run uses identical application/runtime files; only a test selector changed between those runs. Its artifact was downloaded and verified, and SHA-256 comparison confirmed that all six final PNGs are byte-for-byte identical to the inspected images. The visual review therefore applies to the final passing build.
+
+### Environment and remaining limits
+
+Local type checks, all 66 unit checks, and production bundling passed during development. Initial local browser attempts stopped before page interaction because the matching browser download was unavailable and the installed Chromium could not create a process-singleton socket (`Operation not permitted`). A local production smoke attempt also stopped at the runtime's IPC socket restriction. The successful rendered and production HTTP results above come from GitHub Actions, where those operations completed.
+
+The tests that simulate microphone denial and model replies are named accordingly. They do not make live provider calls or validate speech recognition. Real microphone capture/playback, speech-provider recognition, live model quality, and field user benefit remain unverified. Docker and Vercel configurations are included but were not deployed or executed as part of this verification; the production server was exercised in CI, not on a publicly hosted deployment.
 
 ### Defects found and corrected during independent review
 
@@ -85,5 +97,8 @@ The browser tests that simulate microphone denial and model replies are named ac
 - An asynchronous outgoing interpretation could be presented on a subsequently selected handover.
 - A discarded or context-switched recording could remain associated with the next input.
 - Concurrent body reads could race the provider concurrency budget.
+- Repeating unchanged outgoing facts could unnecessarily reopen valid confirmations.
+- The application-token help copy was included in the control's accessible name rather than its description.
+- Closed mobile navigation remained keyboard-reachable, and open navigation and language options needed explicit keyboard focus behavior.
 
-The deterministic parser, state, and concurrency regressions have automated coverage. Browser-level fixes require the browser suite and real-device checks in a permitted runtime before claiming rendered verification.
+The deterministic parser, state, concurrency, and listed browser workflows now have passing automated coverage. The real-device and human evaluation questions above remain open.
