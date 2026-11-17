@@ -246,7 +246,7 @@ test('keeps mobile navigation and language selection usable by keyboard', async 
   await expect(navigation).toBeHidden();
   await expect(dialog.getByRole('button', { name: 'Close dialog', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
-  const localMode = dialog.getByRole('radio', { name: /Local rule checks/ });
+  const localMode = dialog.getByRole('radio', { name: /^Local rule checks/ });
   await expect(localMode).toBeFocused();
   await page.keyboard.press('Space');
   await expect(localMode).toBeChecked();
