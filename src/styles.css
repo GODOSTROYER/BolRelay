@@ -132,9 +132,13 @@ strong {
   border: 2px solid var(--accent);
   border-radius: 8px;
   transform: translateY(-150%);
+  clip-path: inset(50%);
+  pointer-events: none;
 }
 .skip-link:focus {
   transform: translateY(0);
+  clip-path: none;
+  pointer-events: auto;
 }
 .app-shell {
   min-height: 100vh;
@@ -1209,6 +1213,7 @@ strong {
   gap: 10px;
   font-size: 13px;
   max-width: min(560px, calc(100vw - 40px));
+  width: max-content;
   animation: toast-in 0.2s ease-out;
 }
 .toast > svg {

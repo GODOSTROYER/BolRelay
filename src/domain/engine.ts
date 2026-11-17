@@ -484,7 +484,7 @@ export function compareHandover(state: HandoverState): ItemComparison[] {
       stale,
       findings,
       clarification: priority
-        ? `${item.label}: ${priority.message}`
+        ? `${stale ? 'What is your updated plan for' : 'What will you do with'} ${item.label}? Include the quantity, timing, and any prerequisite${item.owner ? ', and say who is responsible' : ''}.`
         : `${item.label}: the stated next action matches the current instruction.`,
       evidence,
     };

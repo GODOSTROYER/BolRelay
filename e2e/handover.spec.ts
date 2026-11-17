@@ -220,7 +220,9 @@ test('keeps mobile navigation and language selection usable by keyboard', async 
     false,
   );
 
-  await toggle.click();
+  await page.keyboard.press('Tab');
+  await expect(toggle).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   const firstLink = navigation.getByRole('link', { name: 'BolRelay', exact: true });
   const settings = navigation.getByRole('button', { name: 'Settings & privacy', exact: true });
@@ -235,7 +237,10 @@ test('keeps mobile navigation and language selection usable by keyboard', async 
 
   await page.keyboard.press('Enter');
   await expect(navigation).toBeVisible();
-  await settings.click();
+  await expect(firstLink).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(settings).toBeFocused();
+  await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Settings & privacy', exact: true });
   await expect(dialog).toBeVisible();
   await expect(navigation).toBeHidden();
