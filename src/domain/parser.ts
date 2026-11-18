@@ -337,10 +337,20 @@ const firstPersonSpeech = (numeric: string) =>
     ? indicFirstPerson.test(numeric)
     : englishFirstPerson.test(numeric);
 /** An instruction or a commitment for someone other than the speaker. */
+/**
+ * Any explicit non-first-person subject, whatever the verb form ("He sends", "They are
+ * sending", "You hold"). "Thank you" is not a subject.
+ */
+const englishOtherSubject =
+  /\b(?:you|he|she|they|someone|somebody|anyone|anybody|everyone|everybody)(?![\p{L}'])(?:'(?:s|re|ll|d))?/iu;
+/** Hindi/Marathi forms that address or describe someone else, or have no agent at all. */
+const indicOtherPersonForms =
+  /(?:ोगे|ोगी|ीजिए|ीजिये|ायचे|ायची|ायचा|ायचं|ायच्या|ावीत|ावेत|शील|शीलच)(?![\p{L}\p{M}])|(?<![\p{L}\p{M}])(?:देगा|देगी|देना|दीजिए|दीजिये|जाएंगे|जायेंगे|जाएगा|जायेगा|जाएगी|जायेगी|जातील|जाईल)(?![\p{L}\p{M}])/u;
 const otherPersonSpeech = (numeric: string) =>
   /[\u0900-\u097F]/u.test(numeric)
-    ? indicOtherPerson.test(numeric)
-    : englishDelegation.test(numeric);
+    ? indicOtherPerson.test(numeric) || indicOtherPersonForms.test(numeric)
+    : englishDelegation.test(numeric) ||
+      englishOtherSubject.test(numeric.replace(/\bthank\s+you\b/giu, ' '));
 /** A clause joined to the previous one shares its subject ("I'll send …, and hold …"). */
 const continuesClause =
   /(?:,|\b(?:and|but|then)|(?<![\p{L}\p{M}])(?:और|आणि|लेकिन|पण|फिर|मग|तथा|व))\s*$/iu;

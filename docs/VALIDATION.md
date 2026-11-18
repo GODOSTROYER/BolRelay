@@ -82,7 +82,7 @@ The local connected browser was unavailable in this environment, so rendered ver
 
 ## Checklist verification wave (18 November 2026)
 
-This wave addressed the remaining verification checklist in [BUILD_PROGRESS.md](BUILD_PROGRESS.md). Every code item was first reproduced as a failing test. Changes were reviewed adversarially in three rounds by independent reviewers who ran their own probes; each round's confirmed findings were fixed and re-verified. Representative defects found and fixed:
+This wave addressed the remaining verification checklist in [BUILD_PROGRESS.md](BUILD_PROGRESS.md). Every code item was first reproduced as a failing test. Changes were reviewed adversarially in four rounds by independent reviewers who ran their own probes; each round's confirmed findings were fixed and re-verified. Representative defects found and fixed:
 
 - "thirty eight parcels", "एकशे आठ" (108) and a second clock phrase ("…तीन बजे के बाद शाम आठ बजे…") were read as a quantity of 8.
 - "Send all parcels except J1" was read as an instruction for J1; a second prerequisite ("…and payment is received") was dropped.
@@ -91,14 +91,14 @@ This wave addressed the remaining verification checklist in [BUILD_PROGRESS.md](
 - Approvals made under earlier parser rules survived reload; a stale tab silently overwrote a newer revision and handover.
 - Short clarification answers looped; later, "8 PM" answered "How many?" and "address doesn't need to be confirmed" became "address confirmed".
 
-Structural safeguards added: a closed-world check (any word the rules cannot account for makes the clause uncertain), a count accepted only next to its item or unit, a model guard that treats every local issue as blocking and compares every field, revalidation at every trust boundary (rules version 5), compare-and-set browser saves, and a full-restatement rule for short answers after unexplained wording.
+Structural safeguards added: a closed-world check (any word the rules cannot account for makes the clause uncertain), a count accepted only next to its item or unit, a model guard that treats every local issue as blocking and compares every field, revalidation at every trust boundary (rules version 6), compare-and-set browser saves, and a full-restatement rule for short answers after unexplained wording.
 
 Verified locally on 18 November 2026 (Node.js 22, Playwright Chromium) at the merged branch head:
 
 | Check                 | Result                                                                                                       |
 | --------------------- | ------------------------------------------------------------------------------------------------------------ |
 | TypeScript            | Passed                                                                                                       |
-| Vitest                | **1,052 passed** across 30 files                                                                             |
+| Vitest                | **1,071 passed** across 31 files                                                                             |
 | Production bundle     | Passed                                                                                                       |
 | Production HTTP smoke | Passed; zero external model calls                                                                            |
 | Chromium              | **59 passed**                                                                                                |

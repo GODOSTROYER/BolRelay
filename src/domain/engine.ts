@@ -701,6 +701,40 @@ export function needsFullRestatement(state: HandoverState, itemId: string): bool
   );
 }
 
+/**
+ * A short answer given while the item needs a full restatement stands alone and keeps that
+ * requirement, so a chain of one-detail answers can never rebuild an item whose earlier
+ * wording (a negation, "to Pune") was never restated. Exported for revalidation.
+ */
+export function markNeedsRestatement(parsed: ParsedTranscript, itemId: string): ParsedTranscript {
+  if (parsed.issues.some((issue) => issue.code === 'NEEDS_FULL_RESTATEMENT')) return parsed;
+  const evidence = parsed.claims[0]?.evidence ?? {
+    utteranceId: parsed.utteranceId,
+    start: 0,
+    end: parsed.text.length,
+    text: parsed.text,
+  };
+  return {
+    ...parsed,
+    claims: parsed.claims.map((claim) =>
+      claim.uncertainFields.includes('object')
+        ? claim
+        : { ...claim, uncertainFields: [...claim.uncertainFields, 'object'] },
+    ),
+    issues: [
+      ...parsed.issues,
+      {
+        code: 'NEEDS_FULL_RESTATEMENT',
+        message:
+          'This item needs one full statement of what you will do, including the item, action and every detail.',
+        itemIds: [itemId],
+        field: 'object',
+        evidence,
+      },
+    ],
+  };
+}
+
 /** Every field the answer did not supply is unchanged from the earlier claim it completes. */
 function inheritsFrom(claim: ParsedClaim, basis: ParsedClaim): boolean {
   const fields = claim.basis?.fields ?? [];
@@ -912,6 +946,13 @@ export function completeShortAnswer(
   );
   if (existing) {
     // A retried request is completed exactly as it was first recorded.
+    if (existing.issues.some((issue) => issue.code === 'NEEDS_FULL_RESTATEMENT'))
+      return markNeedsRestatement(parsed, item.id);
+    if (!existing.answerField) {
+      // It was recorded as a full restatement, judged on its own words.
+      const { answerField: _answered, ...statement } = parsed;
+      return statement;
+    }
     const reference = existing.claims.find((claim) => claim.basis)?.basis;
     const source = state.utterances.find(
       (utterance) => utterance.utteranceId === reference?.utteranceId,
@@ -938,10 +979,26 @@ export function completeShortAnswer(
     state.utterances.find((utterance) => utterance.utteranceId === readback.utteranceId)?.parser !==
       'local-rules' ||
     readback.itemRevision !== item.revision ||
-    parsed.itemRevisions[item.id] !== item.revision ||
-    clarificationField(result) !== parsed.answerField
+    parsed.itemRevisions[item.id] !== item.revision
   )
     return parsed;
+  if (needsFullRestatement(state, item.id)) {
+    // One statement that names the item and its action is the full restatement asked for:
+    // it is judged entirely on its own words, never completed from the earlier read-back.
+    const said = normalizeText(parsed.text);
+    const namesItem = [item.id, item.label, ...item.aliases].some((name) =>
+      new RegExp(
+        `(?<![\\p{L}\\p{M}\\p{N}])${normalizeText(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{M}\\p{N}])`,
+        'u',
+      ).test(said),
+    );
+    if (namesItem && parsed.claims.some((claim) => claim.action)) {
+      const { answerField: _answered, ...statement } = parsed;
+      return statement;
+    }
+    return markNeedsRestatement(parsed, item.id);
+  }
+  if (clarificationField(result) !== parsed.answerField) return parsed;
   return (
     mergeShortAnswer(parsed, item.id, readback.utteranceId, readback.claims, readback.issues) ??
     parsed

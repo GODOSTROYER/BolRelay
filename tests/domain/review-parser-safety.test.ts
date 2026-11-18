@@ -257,10 +257,19 @@ describe('7. Devanagari word boundaries', () => {
   });
 });
 
+describe('8. passive future is not completed work', () => {
+  // "will be dispatched" is planned, not done; with no agent it is not the speaker's own
+  // commitment either, so it stays unresolved as addressed to someone else (checkpoint review).
+  it('hi-IN: आठ नागपुर पार्सल दोपहर तीन बजे के बाद रवाना किए जाएंगे।', () => {
+    const codes = issueCodes('hi-IN', 'आठ नागपुर पार्सल दोपहर तीन बजे के बाद रवाना किए जाएंगे।');
+    expect(codes).not.toContain('COMPLETED_ACTION');
+    expect(codes).toContain('ADDRESSED_TO_OTHER');
+  });
+});
+
 describe('8. supported phrasings that regressed', () => {
   it.each([
     hi('मैं आठ नागपुर पार्सल दोपहर तीन बजे के बाद बिना शर्त भेजूंगा।'),
-    hi('आठ नागपुर पार्सल दोपहर तीन बजे के बाद रवाना किए जाएंगे।'),
     mr('मी आठ नागपूर पार्सल दुपारी तीन नंतर अट नाही पाठवेन.'),
     en('I will send eight Nagpur parcels after 3 PM without any condition.'),
   ])('%s: %s', (language, text) => {

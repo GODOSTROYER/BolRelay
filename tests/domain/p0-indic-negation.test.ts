@@ -26,7 +26,6 @@ describe('supported Hindi/Marathi prohibitions mean hold, never dispatch', () =>
     ['hi-IN', 'मैं दो जोशी पार्सल पता कन्फर्म होने तक नहीं भेजूंगा।'],
     ['hi-IN', 'मैं दो जोशी पार्सल जब तक पता कन्फर्म नहीं होता तब तक नहीं भेजूंगा।'],
     ['hi-IN', 'मैं दो जोशी पार्सल जब तक पता कन्फर्म न हो जाए तब तक रोक कर रखूंगा।'],
-    ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल पाठवायचे नाहीत.'],
     ['mr-IN', 'मी दोन जोशी पार्सल पत्त्याची पुष्टी होईपर्यंत पाठवणार नाही.'],
     ['mr-IN', 'मी दोन जोशी पार्सल पत्ता कन्फर्म होईपर्यंत न पाठवता ठेवेन.'],
   ] as [Language, string][])('%s: %s', (language, text) => {
@@ -45,6 +44,8 @@ describe('supported Hindi/Marathi prohibitions mean hold, never dispatch', () =>
     ['hi-IN', 'दो जोशी पार्सल पता कन्फर्म होने तक न भेजें।'],
     ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल पाठवू नका.'],
     ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल नको पाठवू.'],
+    // Impersonal "are not to be sent" names no one as doing it (checkpoint review).
+    ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल पाठवायचे नाहीत.'],
   ] as [Language, string][])('imperative %s: %s', (language, text) => {
     const state = readback(language, text);
     expect(codes(state)).toEqual(['ADDRESSED_TO_OTHER']);

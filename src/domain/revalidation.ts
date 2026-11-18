@@ -1,4 +1,4 @@
-import { mergeShortAnswer } from './engine';
+import { markNeedsRestatement, mergeShortAnswer } from './engine';
 import { canonicalCondition, canonicalUnit, normalizeText, parseTranscript } from './parser';
 import { misattributesLocalStatement, modelClaimConflict } from './modelGuard';
 import { INTERPRETATION_RULES_VERSION, suppressesCriticalIssue } from './rulesVersion';
@@ -138,7 +138,13 @@ export function revalidateInterpretations(
               (issue) => issue.itemIds.length === 0 || issue.itemIds.includes(itemId),
             ),
           ) ?? null;
-      }
+      } else if (
+        utterance.scopeItemIds?.length === 1 &&
+        utterance.issues.some((issue) => issue.code === 'NEEDS_FULL_RESTATEMENT')
+      )
+        // A standalone answer recorded while a full restatement was required keeps that
+        // requirement (it only ever adds uncertainty, so the stored mark is safe to trust).
+        result = markNeedsRestatement(result, utterance.scopeItemIds[0]!);
     } catch {
       result = null;
     }
