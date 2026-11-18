@@ -43,11 +43,14 @@ import { analyzeTranscript, getCapabilities, type Capabilities } from './lib/api
 import {
   clearSavedWorkspace,
   downloadStoredWorkspace,
+  hasNewerSavedWorkspace,
   importWorkspaceBackup,
   readWorkspace,
   removeAudio,
   restoreWorkspaceBackup,
   saveAudio,
+  STALE_WORKSPACE_MESSAGE,
+  STORAGE_KEY,
   writeWorkspace,
 } from './lib/persistence';
 import { exportHandover, importHandover, printHandover } from './lib/export';
@@ -95,6 +98,10 @@ export default function App() {
   const [activeId, setActiveId] = useState(initial.activeId ?? initial.handovers[0]!.id);
   const [storageWarning, setStorageWarning] = useState(initial.warning);
   const [savingBlocked, setSavingBlocked] = useState(!!initial.warning);
+  // Another tab saved newer work: edits and saves stay blocked until an explicit reload.
+  const [staleWorkspace, setStaleWorkspace] = useState(false);
+  const staleRef = useRef(false);
+  staleRef.current = staleWorkspace;
   const [role, setRole] = useState<ParticipantRole>('incoming');
   const [language, setLanguage] = useState<Language>('en-IN');
   const [incomingText, setIncomingText] = useState('');
@@ -136,10 +143,26 @@ export default function App() {
     void getCapabilities().then(setCapabilities);
   }, []);
   useEffect(() => {
-    if (savingBlocked) return;
+    if (savingBlocked || staleWorkspace) return;
     const result = writeWorkspace(handovers, activeId);
+    if (result.conflict) {
+      staleRef.current = true;
+      setStaleWorkspace(true);
+      return;
+    }
     setStorageWarning(result.ok ? null : (result.error ?? 'This handover could not be saved.'));
-  }, [handovers, activeId, savingBlocked]);
+  }, [handovers, activeId, savingBlocked, staleWorkspace]);
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== STORAGE_KEY) return;
+      if (hasNewerSavedWorkspace()) {
+        staleRef.current = true;
+        setStaleWorkspace(true);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   useEffect(() => {
     const current = workspaceRef.current.find((handover) => handover.id === activeId);
     if (!current) return;
@@ -218,7 +241,43 @@ export default function App() {
     };
   }, [mobileNav]);
 
+  /**
+   * Checked synchronously before every state transition, so an action taken in a
+   * stale view (for example a confirmation of an older revision) is refused even
+   * before the storage event arrives.
+   */
+  const blockIfStale = (): boolean => {
+    if (!staleRef.current && !hasNewerSavedWorkspace()) return false;
+    staleRef.current = true;
+    setStaleWorkspace(true);
+    return true;
+  };
+
+  /** Adopts the latest saved workspace while keeping typed, unsaved transcript text. */
+  const reloadLatestWorkspace = () => {
+    const latest = readWorkspace();
+    if (latest.warning) {
+      setStorageWarning(latest.warning);
+      setSavingBlocked(true);
+    }
+    const next = latest.handovers.length ? latest.handovers : workspaceRef.current;
+    const nextActive =
+      next.find((state) => state.id === activeIdRef.current) ??
+      next.find((state) => state.id === latest.activeId) ??
+      next[0]!;
+    workspaceRef.current = next;
+    setHandovers(next);
+    setActiveId(nextActive.id);
+    if (scope && !nextActive.items.some((item) => item.id === scope)) setScope(null);
+    setDialog(null);
+    setError('');
+    staleRef.current = false;
+    setStaleWorkspace(false);
+    setToast('Loaded the latest saved handovers. Text you typed here was kept.');
+  };
+
   const commit = (id: string, transform: (state: HandoverState) => HandoverState): boolean => {
+    if (blockIfStale()) return false;
     const current = workspaceRef.current.find((handover) => handover.id === id);
     if (!current) {
       setError('This handover no longer exists.');
@@ -240,6 +299,7 @@ export default function App() {
   };
 
   const addHandover = (state: HandoverState) => {
+    if (blockIfStale()) return;
     if (handovers.length >= 40) {
       setError(
         'This workspace has 40 handovers. Export and delete an older handover before adding another.',
@@ -601,9 +661,13 @@ export default function App() {
             <Settings2 size={17} />
             Settings & privacy
           </button>
-          <span className={storageWarning ? 'storage-unsaved' : ''}>
+          <span className={storageWarning || staleWorkspace ? 'storage-unsaved' : ''}>
             <Laptop size={16} />
-            {storageWarning ? 'Changes need saving' : 'Saved on this device'}
+            {staleWorkspace
+              ? 'Newer changes in another tab'
+              : storageWarning
+                ? 'Changes need saving'
+                : 'Saved on this device'}
           </span>
         </div>
       </aside>
@@ -686,6 +750,23 @@ export default function App() {
                   Reset saved workspace
                 </button>
               )}
+            </div>
+          </div>
+        )}
+        {staleWorkspace && (
+          <div className="storage-warning" role="alert" data-testid="stale-workspace-notice">
+            <Info size={19} />
+            <div>
+              <strong>Newer changes in another tab</strong>
+              <p>{STALE_WORKSPACE_MESSAGE}</p>
+              <button
+                type="button"
+                className="text-button"
+                data-testid="reload-workspace"
+                onClick={reloadLatestWorkspace}
+              >
+                Reload latest
+              </button>
             </div>
           </div>
         )}
@@ -1299,6 +1380,8 @@ export default function App() {
                   setActiveId(current.id);
                   setSavingBlocked(false);
                   setStorageWarning(null);
+                  staleRef.current = false;
+                  setStaleWorkspace(false);
                   setRole('incoming');
                   setLanguage(current.participantLanguages.incoming);
                   setScope(null);
@@ -1343,6 +1426,10 @@ export default function App() {
               type="button"
               className="button danger-button"
               onClick={() => {
+                if (blockIfStale()) {
+                  closeDialog();
+                  return;
+                }
                 const deleted = active;
                 const remaining = workspaceRef.current.filter(
                   (handover) => handover.id !== active.id,
