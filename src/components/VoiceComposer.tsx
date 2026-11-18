@@ -235,6 +235,7 @@ export function VoiceComposer({
         data-testid={`${role}-transcript`}
         value={text}
         lang={language}
+        onFocus={(event) => event.currentTarget.scrollIntoView({ block: 'nearest' })}
         onChange={(event) => {
           setText(event.target.value);
           setAudioUrl('');

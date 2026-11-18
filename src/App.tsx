@@ -160,6 +160,23 @@ export default function App() {
     setDialog(null);
   }, [activeId]);
   useEffect(() => {
+    // Expose the on-screen keyboard height so sticky actions can stay above it.
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () =>
+      document.documentElement.style.setProperty(
+        '--keyboard-inset',
+        `${Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))}px`,
+      );
+    update();
+    viewport.addEventListener('resize', update);
+    viewport.addEventListener('scroll', update);
+    return () => {
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+    };
+  }, []);
+  useEffect(() => {
     if (!toast) return;
     const timeout = setTimeout(() => setToast(''), 5000);
     return () => clearTimeout(timeout);
@@ -304,7 +321,8 @@ export default function App() {
           setPendingAudio(null);
           setScope(null);
           setCaptureRevision((value) => value + 1);
-          setToast('Read-back checked against the current instructions.');
+          // The guided view moves focus to its updated heading instead.
+          setToast(guided ? '' : 'Read-back checked against the current instructions.');
         }
       }
     } catch (cause) {
@@ -425,7 +443,7 @@ export default function App() {
         ),
       )
     )
-      setToast('Item confirmed for its current instruction.');
+      setToast(guided ? '' : 'Item confirmed for its current instruction.');
   };
   const confirmAll = () => {
     if (
@@ -464,6 +482,8 @@ export default function App() {
     setIncomingText('');
     setScope(id);
     setPendingAudio(null);
+    // A finished notification must not cover the question being answered.
+    if (guided) setToast('');
     window.setTimeout(() => document.getElementById('incoming-transcript')?.focus(), 0);
   };
   const importFile = async (file: File | undefined) => {
@@ -608,7 +628,11 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main-content" id="main-content" inert={mobileNav}>
+      <main
+        className={`main-content ${guided && role === 'incoming' && view === 'handover' ? 'is-guided' : ''}`}
+        id="main-content"
+        inert={mobileNav}
+      >
         <header className="page-header">
           <div className="heading-group">
             <button
