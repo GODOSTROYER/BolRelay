@@ -1,63 +1,63 @@
 {
-  "generatedAt": "2026-11-18T14:18:01.349Z",
+  "generatedAt": "2026-11-18T14:19:33.896Z",
   "caseCount": 100,
   "headline": {
     "highConfidence": {
       "cases": 97,
-      "strictPass": 29,
-      "lenientPass": 42,
+      "strictPass": 32,
+      "lenientPass": 49,
       "items": 220,
-      "itemStrict": 97,
-      "itemLenient": 144,
+      "itemStrict": 99,
+      "itemLenient": 154,
       "expectedNonAgreement": 94,
-      "safetyFailures": 4,
+      "safetyFailures": 0,
       "expectedAgreement": 123,
-      "falseAlarms": 63,
+      "falseAlarms": 64,
       "checks": 21,
       "checksPassed": 21,
       "errors": 0
     },
     "coreGrid": {
       "cases": 72,
-      "strictPass": 21,
+      "strictPass": 22,
       "lenientPass": 32,
       "items": 168,
       "itemStrict": 72,
       "itemLenient": 111,
       "expectedNonAgreement": 68,
-      "safetyFailures": 1,
+      "safetyFailures": 0,
       "expectedAgreement": 97,
-      "falseAlarms": 53,
+      "falseAlarms": 55,
       "checks": 18,
       "checksPassed": 18,
       "errors": 0
     },
     "extras": {
       "cases": 25,
-      "strictPass": 8,
-      "lenientPass": 10,
+      "strictPass": 10,
+      "lenientPass": 17,
       "items": 52,
-      "itemStrict": 25,
-      "itemLenient": 33,
+      "itemStrict": 27,
+      "itemLenient": 43,
       "expectedNonAgreement": 26,
-      "safetyFailures": 3,
+      "safetyFailures": 0,
       "expectedAgreement": 26,
-      "falseAlarms": 10,
+      "falseAlarms": 9,
       "checks": 3,
       "checksPassed": 3,
       "errors": 0
     },
     "paraphrase": {
       "cases": 14,
-      "strictPass": 4,
+      "strictPass": 5,
       "lenientPass": 5,
       "items": 28,
-      "itemStrict": 12,
-      "itemLenient": 14,
+      "itemStrict": 14,
+      "itemLenient": 15,
       "expectedNonAgreement": 0,
       "safetyFailures": 0,
       "expectedAgreement": 28,
-      "falseAlarms": 16,
+      "falseAlarms": 14,
       "checks": 0,
       "checksPassed": 0,
       "errors": 0
@@ -81,13 +81,13 @@
   "perFamily": {
     "H01": {
       "cases": 16,
-      "strictPass": 4,
-      "lenientPass": 7,
+      "strictPass": 5,
+      "lenientPass": 13,
       "items": 37,
-      "itemStrict": 17,
-      "itemLenient": 24,
+      "itemStrict": 18,
+      "itemLenient": 33,
       "expectedNonAgreement": 22,
-      "safetyFailures": 3,
+      "safetyFailures": 0,
       "expectedAgreement": 15,
       "falseAlarms": 5,
       "checks": 0,
@@ -114,12 +114,12 @@
       "strictPass": 3,
       "lenientPass": 3,
       "items": 12,
-      "itemStrict": 7,
-      "itemLenient": 7,
+      "itemStrict": 8,
+      "itemLenient": 8,
       "expectedNonAgreement": 3,
       "safetyFailures": 0,
       "expectedAgreement": 9,
-      "falseAlarms": 5,
+      "falseAlarms": 4,
       "checks": 0,
       "checksPassed": 0,
       "errors": 0
@@ -159,12 +159,12 @@
       "strictPass": 6,
       "lenientPass": 6,
       "items": 27,
-      "itemStrict": 20,
-      "itemLenient": 20,
+      "itemStrict": 18,
+      "itemLenient": 18,
       "expectedNonAgreement": 3,
       "safetyFailures": 0,
       "expectedAgreement": 24,
-      "falseAlarms": 7,
+      "falseAlarms": 9,
       "checks": 12,
       "checksPassed": 12,
       "errors": 0
@@ -186,13 +186,13 @@
     },
     "H08": {
       "cases": 6,
-      "strictPass": 1,
-      "lenientPass": 3,
+      "strictPass": 2,
+      "lenientPass": 4,
       "items": 12,
-      "itemStrict": 6,
-      "itemLenient": 9,
+      "itemStrict": 7,
+      "itemLenient": 10,
       "expectedNonAgreement": 6,
-      "safetyFailures": 1,
+      "safetyFailures": 0,
       "expectedAgreement": 6,
       "falseAlarms": 2,
       "checks": 0,
@@ -201,15 +201,15 @@
     },
     "H09": {
       "cases": 11,
-      "strictPass": 2,
-      "lenientPass": 3,
+      "strictPass": 3,
+      "lenientPass": 4,
       "items": 22,
-      "itemStrict": 7,
-      "itemLenient": 14,
+      "itemStrict": 8,
+      "itemLenient": 15,
       "expectedNonAgreement": 6,
       "safetyFailures": 0,
       "expectedAgreement": 16,
-      "falseAlarms": 11,
+      "falseAlarms": 10,
       "checks": 0,
       "checksPassed": 0,
       "errors": 0
@@ -234,8 +234,8 @@
       "strictPass": 0,
       "lenientPass": 1,
       "items": 12,
-      "itemStrict": 1,
-      "itemLenient": 4,
+      "itemStrict": 2,
+      "itemLenient": 5,
       "expectedNonAgreement": 5,
       "safetyFailures": 0,
       "expectedAgreement": 7,
@@ -247,14 +247,14 @@
     "H12": {
       "cases": 6,
       "strictPass": 2,
-      "lenientPass": 4,
+      "lenientPass": 3,
       "items": 12,
-      "itemStrict": 6,
-      "itemLenient": 9,
+      "itemStrict": 5,
+      "itemLenient": 8,
       "expectedNonAgreement": 3,
       "safetyFailures": 0,
       "expectedAgreement": 9,
-      "falseAlarms": 3,
+      "falseAlarms": 4,
       "checks": 6,
       "checksPassed": 6,
       "errors": 0
@@ -263,30 +263,30 @@
   "perLanguage": {
     "en-IN": {
       "cases": 33,
-      "strictPass": 12,
-      "lenientPass": 17,
+      "strictPass": 14,
+      "lenientPass": 20,
       "items": 74,
-      "itemStrict": 39,
-      "itemLenient": 52,
+      "itemStrict": 42,
+      "itemLenient": 57,
       "expectedNonAgreement": 32,
-      "safetyFailures": 2,
+      "safetyFailures": 0,
       "expectedAgreement": 41,
-      "falseAlarms": 17,
+      "falseAlarms": 16,
       "checks": 7,
       "checksPassed": 7,
       "errors": 0
     },
     "hi-IN": {
       "cases": 32,
-      "strictPass": 11,
-      "lenientPass": 15,
+      "strictPass": 12,
+      "lenientPass": 18,
       "items": 73,
-      "itemStrict": 39,
-      "itemLenient": 51,
+      "itemStrict": 38,
+      "itemLenient": 54,
       "expectedNonAgreement": 30,
-      "safetyFailures": 2,
+      "safetyFailures": 0,
       "expectedAgreement": 42,
-      "falseAlarms": 16,
+      "falseAlarms": 18,
       "checks": 7,
       "checksPassed": 7,
       "errors": 0
@@ -294,10 +294,10 @@
     "mr-IN": {
       "cases": 32,
       "strictPass": 6,
-      "lenientPass": 10,
+      "lenientPass": 11,
       "items": 73,
       "itemStrict": 19,
-      "itemLenient": 41,
+      "itemLenient": 43,
       "expectedNonAgreement": 32,
       "safetyFailures": 0,
       "expectedAgreement": 40,
@@ -310,30 +310,30 @@
   "perVariant": {
     "adversarial": {
       "cases": 56,
-      "strictPass": 11,
-      "lenientPass": 23,
+      "strictPass": 12,
+      "lenientPass": 29,
       "items": 126,
-      "itemStrict": 43,
-      "itemLenient": 81,
+      "itemStrict": 42,
+      "itemLenient": 89,
       "expectedNonAgreement": 67,
-      "safetyFailures": 3,
+      "safetyFailures": 0,
       "expectedAgreement": 59,
-      "falseAlarms": 34,
+      "falseAlarms": 37,
       "checks": 6,
       "checksPassed": 6,
       "errors": 0
     },
     "ordinary": {
       "cases": 41,
-      "strictPass": 18,
-      "lenientPass": 19,
+      "strictPass": 20,
+      "lenientPass": 20,
       "items": 94,
-      "itemStrict": 54,
-      "itemLenient": 63,
+      "itemStrict": 57,
+      "itemLenient": 65,
       "expectedNonAgreement": 27,
-      "safetyFailures": 1,
+      "safetyFailures": 0,
       "expectedAgreement": 64,
-      "falseAlarms": 29,
+      "falseAlarms": 27,
       "checks": 15,
       "checksPassed": 15,
       "errors": 0
@@ -341,34 +341,34 @@
   },
   "confusionHighConfidence": {
     "agreement": {
-      "agreement": 60,
+      "agreement": 59,
       "contradiction": 3,
-      "omission": 8,
-      "uncertainty": 52,
+      "omission": 6,
+      "uncertainty": 55,
       "ERROR": 0,
       "MISSING": 0
     },
     "contradiction": {
       "agreement": 0,
-      "contradiction": 11,
-      "omission": 10,
-      "uncertainty": 20,
+      "contradiction": 12,
+      "omission": 5,
+      "uncertainty": 24,
       "ERROR": 0,
       "MISSING": 0
     },
     "omission": {
-      "agreement": 2,
-      "contradiction": 3,
+      "agreement": 0,
+      "contradiction": 0,
       "omission": 12,
-      "uncertainty": 17,
+      "uncertainty": 22,
       "ERROR": 0,
       "MISSING": 0
     },
     "uncertainty": {
-      "agreement": 2,
+      "agreement": 0,
       "contradiction": 6,
       "omission": 0,
-      "uncertainty": 14,
+      "uncertainty": 16,
       "ERROR": 0,
       "MISSING": 0
     }
@@ -1103,27 +1103,17 @@
             "omission",
             "uncertainty"
           ],
-          "produced": "contradiction",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
+          "lenient": true,
           "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
             {
-              "field": "action",
-              "status": "contradiction",
-              "message": "The current instruction keeps this item on hold; the read-back proposes a different action."
-            },
-            {
-              "field": "quantity",
-              "status": "omission",
-              "message": "Include the quantity for this item or group."
-            },
-            {
-              "field": "condition",
-              "status": "omission",
-              "message": "The release condition is missing from the read-back."
+              "field": "object",
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             }
           ]
         },
@@ -1134,17 +1124,17 @@
             "contradiction",
             "uncertainty"
           ],
-          "produced": "omission",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
+          "lenient": true,
           "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
             {
               "field": "object",
-              "status": "omission",
-              "message": "State the next action for this item."
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             }
           ]
         }
@@ -1154,7 +1144,7 @@
         "#0 readback(full) ok"
       ],
       "strictPass": false,
-      "lenientPass": false,
+      "lenientPass": true,
       "safetyFailures": 0,
       "falseAlarms": 0
     },
@@ -1179,27 +1169,17 @@
             "omission",
             "uncertainty"
           ],
-          "produced": "contradiction",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
+          "lenient": true,
           "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
             {
-              "field": "action",
-              "status": "contradiction",
-              "message": "The current instruction keeps this item on hold; the read-back proposes a different action."
-            },
-            {
-              "field": "quantity",
-              "status": "omission",
-              "message": "Include the quantity for this item or group."
-            },
-            {
-              "field": "condition",
-              "status": "omission",
-              "message": "The release condition is missing from the read-back."
+              "field": "object",
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             }
           ]
         },
@@ -1210,17 +1190,17 @@
             "contradiction",
             "uncertainty"
           ],
-          "produced": "omission",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
+          "lenient": true,
           "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
             {
               "field": "object",
-              "status": "omission",
-              "message": "State the next action for this item."
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             }
           ]
         }
@@ -1230,7 +1210,7 @@
         "#0 readback(full) ok"
       ],
       "strictPass": false,
-      "lenientPass": false,
+      "lenientPass": true,
       "safetyFailures": 0,
       "falseAlarms": 0
     },
@@ -1255,27 +1235,17 @@
             "omission",
             "uncertainty"
           ],
-          "produced": "contradiction",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
+          "lenient": true,
           "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
             {
-              "field": "action",
-              "status": "contradiction",
-              "message": "The current instruction keeps this item on hold; the read-back proposes a different action."
-            },
-            {
-              "field": "quantity",
-              "status": "omission",
-              "message": "Include the quantity for this item or group."
-            },
-            {
-              "field": "condition",
-              "status": "omission",
-              "message": "The release condition is missing from the read-back."
+              "field": "object",
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             }
           ]
         },
@@ -1286,17 +1256,17 @@
             "contradiction",
             "uncertainty"
           ],
-          "produced": "omission",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
+          "lenient": true,
           "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
             {
               "field": "object",
-              "status": "omission",
-              "message": "State the next action for this item."
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             }
           ]
         }
@@ -1306,7 +1276,7 @@
         "#0 readback(full) ok"
       ],
       "strictPass": false,
-      "lenientPass": false,
+      "lenientPass": true,
       "safetyFailures": 0,
       "falseAlarms": 0
     },
@@ -1346,13 +1316,19 @@
             "uncertainty",
             "contradiction"
           ],
-          "produced": "agreement",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
-          "safetyFailure": true,
+          "lenient": true,
+          "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
-          "findings": []
+          "findings": [
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "These prerequisites differ. Ask which condition is intended."
+            }
+          ]
         }
       ],
       "checks": [],
@@ -1360,8 +1336,8 @@
         "#0 readback(full) ok"
       ],
       "strictPass": false,
-      "lenientPass": false,
-      "safetyFailures": 1,
+      "lenientPass": true,
+      "safetyFailures": 0,
       "falseAlarms": 0
     },
     {
@@ -1451,13 +1427,19 @@
             "uncertainty",
             "contradiction"
           ],
-          "produced": "agreement",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
-          "safetyFailure": true,
+          "lenient": true,
+          "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
-          "findings": []
+          "findings": [
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "These prerequisites differ. Ask which condition is intended."
+            }
+          ]
         }
       ],
       "checks": [],
@@ -1465,8 +1447,8 @@
         "#0 readback(full) ok"
       ],
       "strictPass": false,
-      "lenientPass": false,
-      "safetyFailures": 1,
+      "lenientPass": true,
+      "safetyFailures": 0,
       "falseAlarms": 0
     },
     {
@@ -1502,7 +1484,7 @@
           "acceptable": [
             "agreement"
           ],
-          "produced": "omission",
+          "produced": "uncertainty",
           "strict": false,
           "lenient": false,
           "safetyFailure": false,
@@ -1511,8 +1493,8 @@
           "findings": [
             {
               "field": "condition",
-              "status": "omission",
-              "message": "The release condition is missing from the read-back."
+              "status": "uncertainty",
+              "message": "More than one prerequisite may be stated. Repeat each prerequisite explicitly."
             }
           ]
         }
@@ -1579,6 +1561,11 @@
               "field": "object",
               "status": "uncertainty",
               "message": "Which board item does this refer to? Name it or choose an item for clarification."
+            },
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "These prerequisites differ. Ask which condition is intended."
             }
           ]
         }
@@ -1642,6 +1629,11 @@
               "field": "object",
               "status": "uncertainty",
               "message": "Which board item does this refer to? Name it or choose an item for clarification."
+            },
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "More than one prerequisite may be stated. Repeat each prerequisite explicitly."
             }
           ]
         }
@@ -1677,22 +1669,28 @@
             "uncertainty",
             "contradiction"
           ],
-          "produced": "agreement",
-          "strict": false,
-          "lenient": false,
-          "safetyFailure": true,
+          "produced": "uncertainty",
+          "strict": true,
+          "lenient": true,
+          "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
-          "findings": []
+          "findings": [
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "These prerequisites differ. Ask which condition is intended."
+            }
+          ]
         }
       ],
       "checks": [],
       "stepLog": [
         "#0 readback(targeted:K1) ok"
       ],
-      "strictPass": false,
-      "lenientPass": false,
-      "safetyFailures": 1,
+      "strictPass": true,
+      "lenientPass": true,
+      "safetyFailures": 0,
       "falseAlarms": 0
     },
     {
@@ -2302,19 +2300,13 @@
           "acceptable": [
             "agreement"
           ],
-          "produced": "uncertainty",
-          "strict": false,
-          "lenient": false,
+          "produced": "agreement",
+          "strict": true,
+          "lenient": true,
           "safetyFailure": false,
-          "falseAlarm": true,
+          "falseAlarm": false,
           "confirmed": false,
-          "findings": [
-            {
-              "field": "condition",
-              "status": "uncertainty",
-              "message": "The read-back adds an unconfirmed prerequisite."
-            }
-          ]
+          "findings": []
         },
         {
           "itemId": "P1",
@@ -2344,7 +2336,7 @@
       "strictPass": false,
       "lenientPass": false,
       "safetyFailures": 0,
-      "falseAlarms": 2
+      "falseAlarms": 1
     },
     {
       "id": "H03-en-adv",
@@ -3398,6 +3390,11 @@
               "field": "object",
               "status": "uncertainty",
               "message": "An explicit item identifier is not on this board. Name the intended item; the selected scope cannot replace a different ID."
+            },
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "More than one prerequisite may be stated. Repeat each prerequisite explicitly."
             }
           ]
         },
@@ -3722,19 +3719,9 @@
           "confirmed": false,
           "findings": [
             {
-              "field": "action",
+              "field": "object",
               "status": "uncertainty",
-              "message": "State the intended action: dispatch, hold, pack, or collect."
-            },
-            {
-              "field": "quantity",
-              "status": "omission",
-              "message": "Include the quantity for this item or group."
-            },
-            {
-              "field": "unit",
-              "status": "omission",
-              "message": "Name the unit so pieces and cartons cannot be confused."
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             },
             {
               "field": "action",
@@ -3767,6 +3754,11 @@
           "confirmed": false,
           "findings": [
             {
+              "field": "object",
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
+            },
+            {
               "field": "quantity",
               "status": "contradiction",
               "message": "The quantity differs from the confirmed instruction."
@@ -3779,13 +3771,19 @@
           "acceptable": [
             "agreement"
           ],
-          "produced": "agreement",
-          "strict": true,
-          "lenient": true,
+          "produced": "uncertainty",
+          "strict": false,
+          "lenient": false,
           "safetyFailure": false,
-          "falseAlarm": false,
+          "falseAlarm": true,
           "confirmed": false,
-          "findings": []
+          "findings": [
+            {
+              "field": "object",
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
+            }
+          ]
         }
       ],
       "checks": [],
@@ -3800,7 +3798,7 @@
       "strictPass": false,
       "lenientPass": false,
       "safetyFailures": 0,
-      "falseAlarms": 2
+      "falseAlarms": 3
     },
     {
       "id": "H06-hi-ord",
@@ -3910,7 +3908,7 @@
           "acceptable": [
             "agreement"
           ],
-          "produced": "contradiction",
+          "produced": "uncertainty",
           "strict": false,
           "lenient": false,
           "safetyFailure": false,
@@ -3918,14 +3916,9 @@
           "confirmed": false,
           "findings": [
             {
-              "field": "action",
-              "status": "contradiction",
-              "message": "The read-back says hold, while the instruction says dispatch."
-            },
-            {
-              "field": "condition",
+              "field": "object",
               "status": "uncertainty",
-              "message": "The read-back adds an unconfirmed prerequisite."
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             }
           ]
         },
@@ -3935,7 +3928,7 @@
           "acceptable": [
             "agreement"
           ],
-          "produced": "omission",
+          "produced": "uncertainty",
           "strict": false,
           "lenient": false,
           "safetyFailure": false,
@@ -3944,8 +3937,8 @@
           "findings": [
             {
               "field": "object",
-              "status": "omission",
-              "message": "State the next action for this item."
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             }
           ]
         },
@@ -3955,13 +3948,19 @@
           "acceptable": [
             "agreement"
           ],
-          "produced": "agreement",
-          "strict": true,
-          "lenient": true,
+          "produced": "uncertainty",
+          "strict": false,
+          "lenient": false,
           "safetyFailure": false,
-          "falseAlarm": false,
+          "falseAlarm": true,
           "confirmed": false,
-          "findings": []
+          "findings": [
+            {
+              "field": "object",
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
+            }
+          ]
         }
       ],
       "checks": [],
@@ -3976,7 +3975,7 @@
       "strictPass": false,
       "lenientPass": false,
       "safetyFailures": 0,
-      "falseAlarms": 2
+      "falseAlarms": 3
     },
     {
       "id": "H06-mr-ord",
@@ -4094,19 +4093,14 @@
           "confirmed": false,
           "findings": [
             {
-              "field": "action",
+              "field": "object",
               "status": "uncertainty",
-              "message": "This reply contains competing or alternative actions. State one next action and its prerequisite explicitly."
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
             },
             {
               "field": "object",
               "status": "uncertainty",
               "message": "Which board item does this refer to? Name it or choose an item for clarification."
-            },
-            {
-              "field": "condition",
-              "status": "uncertainty",
-              "message": "The read-back adds an unconfirmed prerequisite."
             }
           ]
         },
@@ -4123,6 +4117,11 @@
           "falseAlarm": true,
           "confirmed": false,
           "findings": [
+            {
+              "field": "object",
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
+            },
             {
               "field": "object",
               "status": "uncertainty",
@@ -4143,6 +4142,11 @@
           "falseAlarm": true,
           "confirmed": false,
           "findings": [
+            {
+              "field": "object",
+              "status": "uncertainty",
+              "message": "This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically."
+            },
             {
               "field": "object",
               "status": "uncertainty",
@@ -5103,13 +5107,19 @@
             "uncertainty",
             "contradiction"
           ],
-          "produced": "agreement",
-          "strict": false,
-          "lenient": false,
-          "safetyFailure": true,
+          "produced": "uncertainty",
+          "strict": true,
+          "lenient": true,
+          "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
-          "findings": []
+          "findings": [
+            {
+              "field": "action",
+              "status": "uncertainty",
+              "message": "This may describe completed work. Say what you intend to do next."
+            }
+          ]
         },
         {
           "itemId": "C1",
@@ -5130,9 +5140,9 @@
       "stepLog": [
         "#0 readback(full) ok"
       ],
-      "strictPass": false,
-      "lenientPass": false,
-      "safetyFailures": 1,
+      "strictPass": true,
+      "lenientPass": true,
+      "safetyFailures": 0,
       "falseAlarms": 0
     },
     {
@@ -5390,11 +5400,6 @@
               "field": "action",
               "status": "uncertainty",
               "message": "State the intended action: dispatch, hold, pack, or collect."
-            },
-            {
-              "field": "quantity",
-              "status": "uncertainty",
-              "message": "Several quantities were heard. State the final quantity for this item or group."
             }
           ]
         },
@@ -5554,14 +5559,14 @@
               "message": "The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly."
             },
             {
+              "field": "quantity",
+              "status": "uncertainty",
+              "message": "This number wording is not safely understood. Repeat the total count as a plain number."
+            },
+            {
               "field": "object",
               "status": "uncertainty",
               "message": "Which board item does this refer to? Name it or choose an item for clarification."
-            },
-            {
-              "field": "quantity",
-              "status": "omission",
-              "message": "Include the quantity for this item or group."
             },
             {
               "field": "unit",
@@ -5639,14 +5644,14 @@
               "message": "State the intended action: dispatch, hold, pack, or collect."
             },
             {
+              "field": "quantity",
+              "status": "uncertainty",
+              "message": "This number wording is not safely understood. Repeat the total count as a plain number."
+            },
+            {
               "field": "object",
               "status": "uncertainty",
               "message": "Which board item does this refer to? Name it or choose an item for clarification."
-            },
-            {
-              "field": "quantity",
-              "status": "omission",
-              "message": "Include the quantity for this item or group."
             },
             {
               "field": "unit",
@@ -5874,19 +5879,13 @@
             "agreement",
             "uncertainty"
           ],
-          "produced": "uncertainty",
-          "strict": false,
+          "produced": "agreement",
+          "strict": true,
           "lenient": true,
           "safetyFailure": false,
-          "falseAlarm": true,
+          "falseAlarm": false,
           "confirmed": false,
-          "findings": [
-            {
-              "field": "quantity",
-              "status": "uncertainty",
-              "message": "Several quantities were heard. State the final quantity for this item or group."
-            }
-          ]
+          "findings": []
         },
         {
           "itemId": "B1",
@@ -5907,10 +5906,10 @@
       "stepLog": [
         "#0 readback(full) ok"
       ],
-      "strictPass": false,
+      "strictPass": true,
       "lenientPass": true,
       "safetyFailures": 0,
-      "falseAlarms": 1
+      "falseAlarms": 0
     },
     {
       "id": "H09-en-x-88",
@@ -5990,17 +5989,17 @@
             "contradiction",
             "uncertainty"
           ],
-          "produced": "omission",
+          "produced": "uncertainty",
           "strict": false,
-          "lenient": false,
+          "lenient": true,
           "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
             {
               "field": "quantity",
-              "status": "omission",
-              "message": "Include the quantity for this item or group."
+              "status": "uncertainty",
+              "message": "This number wording is not safely understood. Repeat the total count as a plain number."
             }
           ]
         },
@@ -6024,7 +6023,7 @@
         "#0 readback(full) ok"
       ],
       "strictPass": false,
-      "lenientPass": false,
+      "lenientPass": true,
       "safetyFailures": 0,
       "falseAlarms": 0
     },
@@ -6541,6 +6540,11 @@
             {
               "field": "action",
               "status": "uncertainty",
+              "message": "State the intended action: dispatch, hold, pack, or collect."
+            },
+            {
+              "field": "action",
+              "status": "uncertainty",
               "message": "The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly."
             },
             {
@@ -6903,6 +6907,11 @@
             {
               "field": "action",
               "status": "uncertainty",
+              "message": "State the intended action: dispatch, hold, pack, or collect."
+            },
+            {
+              "field": "action",
+              "status": "uncertainty",
               "message": "The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly."
             },
             {
@@ -6985,6 +6994,21 @@
           "falseAlarm": true,
           "confirmed": false,
           "findings": [
+            {
+              "field": "action",
+              "status": "uncertainty",
+              "message": "State the intended action: dispatch, hold, pack, or collect."
+            },
+            {
+              "field": "action",
+              "status": "uncertainty",
+              "message": "The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly."
+            },
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "A negation may apply to the prerequisite. Clarify whether the address must be confirmed before release."
+            },
             {
               "field": "object",
               "status": "uncertainty",
@@ -7080,6 +7104,11 @@
             {
               "field": "action",
               "status": "uncertainty",
+              "message": "State the intended action: dispatch, hold, pack, or collect."
+            },
+            {
+              "field": "action",
+              "status": "uncertainty",
               "message": "The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly."
             },
             {
@@ -7168,6 +7197,16 @@
               "field": "object",
               "status": "uncertainty",
               "message": "Which board item does this refer to? Name it or choose an item for clarification."
+            },
+            {
+              "field": "action",
+              "status": "uncertainty",
+              "message": "State the intended action: dispatch, hold, pack, or collect."
+            },
+            {
+              "field": "action",
+              "status": "uncertainty",
+              "message": "The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly."
             },
             {
               "field": "object",
@@ -7377,17 +7416,17 @@
             "contradiction",
             "uncertainty"
           ],
-          "produced": "omission",
-          "strict": false,
-          "lenient": false,
+          "produced": "contradiction",
+          "strict": true,
+          "lenient": true,
           "safetyFailure": false,
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
             {
               "field": "owner",
-              "status": "omission",
-              "message": "State who owns this action."
+              "status": "contradiction",
+              "message": "The assigned person differs from the plan."
             }
           ]
         }
@@ -7420,7 +7459,7 @@
           "acceptable": [
             "agreement"
           ],
-          "produced": "uncertainty",
+          "produced": "contradiction",
           "strict": false,
           "lenient": false,
           "safetyFailure": false,
@@ -7428,14 +7467,9 @@
           "confirmed": false,
           "findings": [
             {
-              "field": "quantity",
-              "status": "uncertainty",
-              "message": "Several quantities were heard. State the final quantity for this item or group."
-            },
-            {
               "field": "owner",
-              "status": "omission",
-              "message": "State who owns this action."
+              "status": "contradiction",
+              "message": "The assigned person differs from the plan."
             }
           ]
         },
@@ -7499,11 +7533,6 @@
           "falseAlarm": false,
           "confirmed": false,
           "findings": [
-            {
-              "field": "quantity",
-              "status": "uncertainty",
-              "message": "Several quantities were heard. State the final quantity for this item or group."
-            },
             {
               "field": "object",
               "status": "uncertainty",
@@ -7933,13 +7962,19 @@
           "acceptable": [
             "agreement"
           ],
-          "produced": "agreement",
-          "strict": true,
-          "lenient": true,
+          "produced": "uncertainty",
+          "strict": false,
+          "lenient": false,
           "safetyFailure": false,
-          "falseAlarm": false,
+          "falseAlarm": true,
           "confirmed": false,
-          "findings": []
+          "findings": [
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "More than one prerequisite may be stated. Repeat each prerequisite explicitly."
+            }
+          ]
         }
       ],
       "checks": [
@@ -7955,9 +7990,9 @@
         "#2 readback rejected (allowed): DomainError(DUPLICATE_UTTERANCE): This recording ID was already used for different content."
       ],
       "strictPass": false,
-      "lenientPass": true,
+      "lenientPass": false,
       "safetyFailures": 0,
-      "falseAlarms": 0
+      "falseAlarms": 1
     },
     {
       "id": "H12-mr-ord",
@@ -8084,6 +8119,11 @@
               "field": "object",
               "status": "uncertainty",
               "message": "Which board item does this refer to? Name it or choose an item for clarification."
+            },
+            {
+              "field": "condition",
+              "status": "uncertainty",
+              "message": "More than one prerequisite may be stated. Repeat each prerequisite explicitly."
             }
           ]
         }

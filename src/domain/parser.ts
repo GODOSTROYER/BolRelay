@@ -197,6 +197,13 @@ const commitmentAfterCondition =
 const exclusionMarker =
   /\b(?:except|excepting|excluding|exclude|other than|apart from|aside from|save for|besides|not including|leaving out|leave out)\b|\b(?:all|everything|anything|both|every\s+\p{L}+)(?:\s+\p{L}+)?\s+but\b|\bbut\s+not\b|छोड़?\s*(?:कर|के)|सिवाय|सिवा|अलावा|सोडून(?!\s*(?:द्या|दे|दिल))|वगळून|वगळता|व्यतिरिक्त|खेरीज|सोडता/iu;
 
+/**
+ * Hindi/Marathi perfect forms of the supported work verbs ("पैक कर दिए हैं", "रख दिया",
+ * "भेजा", "पॅक केले", "ठेवले", "गोळा केला"). They report completed work, not a next action.
+ */
+const completedIndicAction =
+  /(?<![\p{L}\p{M}])(?:(?:पैक|पॅक|पॅकिंग|गोळा|रवाना|डिस्पैच|डिस्पॅच)\s*(?:कर\s*)?(?:दि(?:या|ए|यी|ई)|लि(?:या|ए)|किया|किए|की|कर\s*चुक[\p{L}\p{M}]*|केल[ेां]|केली|झाल[ेाी])|(?:भेजा|भेजे|भेजी|रखा|रखे|रोका|रोके|उठाया|उठाए|उठा\s*लि(?:या|ए))|(?:रख|रोक|उठा)\s*(?:दि(?:या|ए)|लि(?:या|ए)|चुक[\p{L}\p{M}]*)|(?:ठेवल[ेां]|ठेवली|थांबवल[ेां]|थांबवली|घेतल[ेां]|घेतली|सोडल[ेां]|सोडली|पाठवली))(?![\p{L}\p{M}])/u;
+
 export function actionFromText(text: string): WorkAction | undefined {
   const normal = normalizeText(text);
   // Never let a negated verb stand as its positive action ("न रोकें" is not hold).
@@ -614,7 +621,8 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     if (
       /\b(?:already|sent|dispatched|packed|collected|have done|did send)\b|भेज\s*(?:दि(?:या|ए)|चुक)|पाठवले|पाठवला|पाठवलं/iu.test(
         normal,
-      )
+      ) ||
+      completedIndicAction.test(normal)
     )
       uncertain(
         'action',
