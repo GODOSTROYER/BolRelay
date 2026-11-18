@@ -96,10 +96,15 @@ export function canonicalUnit(unit: string): string {
   return value;
 }
 
+/** Hindi/Marathi (and romanised Hinglish) negation. Bounded tokens avoid नया, नंतर, नागपूर. */
+const indicNegation =
+  /नहीं|नाही|मत|(?<![\p{L}\p{M}])(?:नही|न|ना|नको|नकोस|नका|नये)(?![\p{L}\p{M}])|(?:बिना|बगैर|बग़ैर|शिवाय|विना)(?![\p{L}\p{M}])|(?<![\p{L}\p{M}\p{N}])(?:nahi|nahin|nahee|nhi|mat|na|nako|naka|nahit|bina|bagair|baghair)(?![\p{L}\p{M}\p{N}])/iu;
+
 export function canonicalCondition(condition: string): string {
   const value = normalizeText(condition);
   // A negated prerequisite can never collapse to its positive counterpart.
-  if (/\b(?:not|never|without|unconfirmed)\b|नहीं|नाही/iu.test(value)) return value;
+  if (/\b(?:not|never|without|unconfirmed)\b/iu.test(value) || indicNegation.test(value))
+    return value;
   if (
     /(address|पता|पते|पत्ता|पत्त्याची)/u.test(value) &&
     /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u.test(value)
@@ -121,13 +126,34 @@ const holdMarker = /\b(?:hold|wait|keep|retain|stay|remain)\b|रोक|रु�
 const dispatchMarker = /\b(?:send|dispatch|release|ship|leave)\b|भेज|रवाना|पाठव|सोड/iu;
 const packMarker = /\b(?:pack|prepare|wrap)\b|पैक|पॅक|पॅकिंग/iu;
 const collectMarker = /\b(?:collect|pick\s*up)\b|उठा|घेऊन|गोळा/iu;
+// Indic forms: planned/imperative prohibitions only. Past tense (भेजा नहीं, पाठवले नाही) and
+// "otherwise" (नहीं तो, नाहीतर) are not prohibitions and stay unhandled negation.
 const prohibitedDispatch =
-  /\b(?:do not|don't|will not|must not|won't|cannot|can't|never)\s+(?:send|dispatch|release|ship)\b|मत\s*भेज|नहीं\s*भेज|नाही\s*पाठव|पाठवू\s*न(?:का|ये)|भेज(?:ना|ूंगा|ेंगे)?\s*नहीं|पाठव(?:णार|ेन|ू)?\s*नाही/iu;
+  /\b(?:do not|don't|will not|must not|won't|cannot|can't|never)\s+(?:send|dispatch|release|ship)\b|(?<![\p{L}\p{M}])(?:(?:मत|नहीं|नही)\s*|न\s+)भेज(?![ाेी](?![\p{L}\p{M}]))|भेज(?:ना|नी|ने|ो|ें|िए|िये|ूं|ूँ|ूंगा|ूँगा|ूंगी|ूँगी|ेंगे|ेंगी|ेगा|ेगी)?\s*(?:नहीं|नही|मत)(?![\p{L}\p{M}])(?!\s*तो(?![\p{L}\p{M}]))|(?<![\p{L}\p{M}])(?:(?:नाही|नको)\s*|न\s+)पाठव(?!(?:ले|ला|ली|लं)(?![\p{L}\p{M}]))|पाठव(?:ू|णार|ेन|ायचे|ायचा|ायची|ायला|ावे|ावेत)?\s*(?:नाही|नाहीत|नका|नको|नकोस|नये)(?![\p{L}\p{M}])(?!\s*तर(?![\p{L}\p{M}]))/iu;
+const prohibitedDispatchAll = new RegExp(prohibitedDispatch.source, 'giu');
+// Pleonastic negation of the supported "until" idioms: जब तक … नहीं होता / जोपर्यंत … होत नाही.
+const indicUntilNegation =
+  /जब\s*तक\s+[^,;।]*?(?<![\p{L}\p{M}])(?:नहीं|नही|न)\s+हो[\p{L}\p{M}]*|जोपर्यंत\s+[^,;।]*?(?:होत|होणार|झाला|झाली|झाले)\s+नाही(?![\p{L}\p{M}])/giu;
+const indicNegatedHold =
+  /(?<![\p{L}\p{M}])(?:मत|नहीं|नही|न|ना|नको)\s+(?:रोक|रुक|रख|थांब|ठेव)|(?:रोक|रुक|रख|थांब|ठेव)[\p{L}\p{M}]*\s+(?:मत|नहीं|नही|ना|नाही|नाहीत|नका|नको|नकोस|नये)(?![\p{L}\p{M}])/giu;
+
+/** The Indic text left after removing supported prohibitions and supported "until" idioms. */
+function unexplainedIndicText(normal: string): string {
+  const rest = normal.replace(prohibitedDispatchAll, ' ');
+  return (holdMarker.test(normal) || prohibitedDispatch.test(normal)) &&
+    /(address|पता|पत्त)/iu.test(normal)
+    ? rest.replace(indicUntilNegation, ' ')
+    : rest;
+}
+const unsupportedIndicNegation = (normal: string) =>
+  indicNegation.test(unexplainedIndicText(normal));
 const gateMarker =
   /\b(?:until|unless|once|only after|after the address|when the address)\b|जब\s*तक|होने\s*तक|पुष्टि\s*के\s*बाद|जोपर्यंत|होईपर्यंत|पुष्टी\s*झाल्यावर|पत्ता\s*कन्फर्म\s*झाल्यावर/iu;
 
 export function actionFromText(text: string): WorkAction | undefined {
   const normal = normalizeText(text);
+  // Never let a negated verb stand as its positive action ("न रोकें" is not hold).
+  if (unsupportedIndicNegation(normal)) return undefined;
   if (prohibitedDispatch.test(normal) || holdMarker.test(normal)) return 'hold';
   if (dispatchMarker.test(normal)) return 'dispatch';
   if (packMarker.test(normal)) return 'pack';
@@ -304,7 +330,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     const action = actionFromText(normal);
     const actionKinds = [
       prohibitedDispatch.test(normal) || holdMarker.test(normal),
-      !prohibitedDispatch.test(normal) && dispatchMarker.test(normal),
+      dispatchMarker.test(normal.replace(prohibitedDispatchAll, ' ')),
       packMarker.test(normal),
       collectMarker.test(normal),
     ].filter(Boolean).length;
@@ -321,6 +347,9 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     if (
       ((actionKinds > 1 || residualCommitment) && !validHoldSequence) ||
       /\b(?:or|either|otherwise|but|however|instead)\b|(?<![\p{L}\p{M}])(?:या|किंवा|लेकिन|पण)(?![\p{L}\p{M}])/iu.test(
+        normal,
+      ) ||
+      /(?<![\p{L}\p{M}])(?:नहीं\s*तो|नही\s*तो|नाही\s*तर|नाहीतर|वरना|अन्यथा)(?![\p{L}\p{M}])|\b(?:nahin?\s+to|nahitar|warna|varna)\b/iu.test(
         normal,
       )
     )
@@ -373,13 +402,11 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'UNSUPPORTED_NEGATION',
         'This negated action needs an explicit next-action clarification.',
       );
-    const supportedIndicUntil =
-      /जब\s*तक|जोपर्यंत/iu.test(normal) && action === 'hold' && /(address|पता|पत्त)/iu.test(normal);
     if (
-      /\b(?:not|never|without|won't|don't|can't|cannot)\b|नहीं|नाही|मत/iu.test(normal) &&
-      !prohibitedDispatch.test(normal) &&
-      !supportedIndicUntil &&
-      !/\bnot before\b/iu.test(normal)
+      (/\b(?:not|never|without|won't|don't|can't|cannot)\b/iu.test(normal) &&
+        !prohibitedDispatch.test(normal) &&
+        !/\bnot before\b/iu.test(normal)) ||
+      unsupportedIndicNegation(normal)
     )
       uncertain(
         'action',
@@ -388,6 +415,17 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       );
 
     const clock = timeFromClause(numeric);
+    // "Do not send after three" is not "hold until three"; never invert a negated time.
+    const negatedTime =
+      prohibitedDispatch.test(normal) && (!!clock.time || /पहले|आधी|अगोदर|पूर्वी/u.test(normal));
+    if (negatedTime) {
+      uncertain(
+        'action',
+        'NEGATED_TIME',
+        'A prohibition tied to a time does not say what happens next or when release may begin. State the next action and earliest release time explicitly.',
+      );
+      if (!uncertainFields.includes('notBefore')) uncertainFields.push('notBefore');
+    }
     if (clock.ambiguous)
       uncertain('notBefore', 'AMBIGUOUS_TIME', 'Say the time with AM/PM or use a 24-hour time.');
     if (clock.unsupportedBefore)
@@ -438,7 +476,13 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     ].map((match) => Number(match[0]));
     let quantity: number | undefined;
     if (amounts.length === 1) quantity = amounts[0];
-    else if (amounts.length > 1 && /\b(?:sorry|actually|i mean|no)\b|माफ|नाही|नहीं/iu.test(normal))
+    else if (
+      amounts.length > 1 &&
+      // Hindi/Marathi "not" corrects a count only between two numbers ("बारह नहीं आठ"),
+      // never when it negates the verb ("तीन बजे से पहले नहीं भेजूंगा").
+      (/\b(?:sorry|actually|i mean|no)\b|माफ/iu.test(normal) ||
+        /\d\s*,?\s*(?:नहीं|नही|नाही)\s*,?\s*\d/u.test(numeric))
+    )
       quantity = amounts.at(-1);
     else if (amounts.length > 1)
       uncertain(
@@ -502,6 +546,20 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         );
     }
 
+    if (
+      indicNegation.test(unexplainedIndicText(normal).replace(indicNegatedHold, ' ')) &&
+      (gateMarker.test(normal) ||
+        /(address|confirm|पता|पते|पत्ता|पत्त|पुष्टि|पुष्टी|कन्फर्म)/iu.test(normal))
+    ) {
+      // A Hindi/Marathi negation that may belong to the prerequisite ("बिना", "न करता").
+      condition = undefined;
+      uncertain(
+        'condition',
+        'NEGATED_PREREQUISITE',
+        'A negation may apply to the prerequisite. Clarify whether the address must be confirmed before release.',
+      );
+    }
+
     let owner: string | undefined;
     const knownOwners = [
       ...new Set(targets.map((item) => item.owner).filter((o): o is string => !!o)),
@@ -518,7 +576,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       action,
       ...(quantity !== undefined && quantity > 0 ? { quantity } : {}),
       ...(unit ? { unit } : {}),
-      ...(clock.time ? { notBefore: clock.time } : {}),
+      ...(clock.time && !negatedTime ? { notBefore: clock.time } : {}),
       ...(condition ? { condition } : {}),
       ...(owner ? { owner } : {}),
       uncertainFields,

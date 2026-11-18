@@ -200,9 +200,9 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
           /(?<![\p{L}\p{N}])\d+(?:\.\d+)?(?![\p{L}\p{N}])/gu,
         ),
       ].map((m) => Number(m[0]));
-      const corrected = /\b(?:sorry|actually|i mean|no)\b|माफ|नाही|नहीं/iu.test(
-        fieldEvidence.quantity!,
-      );
+      const corrected =
+        /\b(?:sorry|actually|i mean|no)\b|माफ/iu.test(fieldEvidence.quantity!) ||
+        /\d\s*,?\s*(?:नहीं|नही|नाही)\s*,?\s*\d/u.test(normalizeNumbers(fieldEvidence.quantity!));
       if ((numbers.length !== 1 && !corrected) || numbers.at(-1) !== claim.quantity)
         throw new Error(
           'Model quantity is not supported by its field evidence; repeat the number explicitly.',
@@ -241,6 +241,7 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
           'AMBIGUOUS_TIME',
           'UNSUPPORTED_BEFORE_TIME',
           'NEGATED_PREREQUISITE',
+          'NEGATED_TIME',
           'UNHANDLED_NEGATION',
           'UNSUPPORTED_NEGATION',
           'COMPLETED_ACTION',
