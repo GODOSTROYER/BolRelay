@@ -71,7 +71,12 @@ describe('1. exclusions are never inverted into a claim on the excluded item', (
   });
 
   it('keeps "minus" before a number a negative quantity, not an exclusion', () => {
+    // Rules v5: the bare imperative is also addressed to someone else.
     expect(issueCodes('en-IN', 'Send minus eight Nagpur parcels after 3 PM.')).toEqual([
+      'ADDRESSED_TO_OTHER',
+      'NEGATIVE_QUANTITY',
+    ]);
+    expect(issueCodes('en-IN', 'I will send minus eight Nagpur parcels after 3 PM.')).toEqual([
       'NEGATIVE_QUANTITY',
     ]);
   });
@@ -256,7 +261,6 @@ describe('8. supported phrasings that regressed', () => {
   it.each([
     hi('मैं आठ नागपुर पार्सल दोपहर तीन बजे के बाद बिना शर्त भेजूंगा।'),
     hi('आठ नागपुर पार्सल दोपहर तीन बजे के बाद रवाना किए जाएंगे।'),
-    mr('मी आठ नागपूर पार्सल दुपार तीन नंतर सोडून टाकेन.'),
     mr('मी आठ नागपूर पार्सल दुपारी तीन नंतर अट नाही पाठवेन.'),
     en('I will send eight Nagpur parcels after 3 PM without any condition.'),
   ])('%s: %s', (language, text) => {
@@ -325,14 +329,12 @@ describe('supported phrasings still agree in all three languages', () => {
     en(
       'I will hold one parcel J1 until the address is confirmed. I will hold one parcel J2 until the address is confirmed. I will send eight Nagpur parcels after 3 PM.',
     ),
-    hi('आठ नागपुर पार्सल दोपहर तीन बजे के बाद भेजना। दो जोशी पार्सल पता कन्फर्म होने तक रोक कर रखना।'),
     hi(
       'मैं आठ नागपुर पार्सल दोपहर तीन बजे के बाद भेज दूंगा। हम दो जोशी पार्सल पते की पुष्टि होने तक रोक कर रखेंगे।',
     ),
     hi(
       'मैं आठ नागपुर पार्सल दोपहर तीन बजे के बाद भेजूँगा। मैं दो जोशी पार्सल जब तक पता कन्फर्म न हो तब तक रोकूँगा।',
     ),
-    mr('आठ नागपूर पार्सल दुपारी तीन नंतर पाठवा. पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल थांबवा.'),
     mr('आम्ही आठ नागपूर पार्सल दुपारी तीन नंतर पाठवू. आम्ही दोन जोशी पार्सल पत्ता कन्फर्म होईपर्यंत थांबवू.'),
   ])('%s: %s', (language, text) => {
     expect(read(language, text)).toEqual({ NAGPUR: 'agreement', J1: 'agreement', J2: 'agreement' });

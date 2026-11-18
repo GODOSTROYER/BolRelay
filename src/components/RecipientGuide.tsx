@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, CircleHelp } from 'lucide-react';
 import { clarificationAttempts, clarificationField } from '../domain/engine';
 import type { HandoverState, ItemComparison, Language } from '../domain/types';
-import { clarificationQuestion, describeInstruction, retryQuestion, ui } from '../lib/language';
+import { currentQuestion, describeInstruction, ui } from '../lib/language';
 import { SpeakButton } from './SpeakButton';
 
 /** After this many unresolved answers to the same question, offer a way out instead of looping. */
@@ -42,14 +42,12 @@ export function RecipientGuide({
   const item = state.items.find((entry) => entry.id === current?.itemId);
   const complete = comparisons.length > 0 && comparisons.every((result) => result.confirmed);
   const field = current && clarificationField(current);
-  // A repeated question is reworded; a bare "yes" is told it cannot answer it.
-  const { attempts, bareReply } =
-    item && field ? clarificationAttempts(state, item.id) : { attempts: 0, bareReply: false };
+  // A repeated question is reworded; a bare "yes" is told it cannot answer it; wording a
+  // short answer cannot resolve asks for the whole item again.
+  const { attempts } = item && field ? clarificationAttempts(state, item.id) : { attempts: 0 };
   const question =
     item && current
-      ? field && attempts > 0
-        ? retryQuestion(item, field, bareReply, language)
-        : clarificationQuestion(item, current, language)
+      ? currentQuestion(state, item, current, language)
       : ui(language, 'readyToSpeak');
   const contextKey = `${state.id}:${language}:${item?.id ?? 'full'}:${item?.revision ?? 0}:${attempts}`;
   const change =

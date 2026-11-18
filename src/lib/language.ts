@@ -1,4 +1,4 @@
-import { clarificationAttempts, clarificationField } from '../domain/engine';
+import { clarificationAttempts, clarificationField, needsFullRestatement } from '../domain/engine';
 import type {
   ClaimField,
   Finding,
@@ -184,6 +184,11 @@ const copy = {
     'अनेक प्रयत्नांनंतरही हे स्पष्ट नाही. काम सोपवणाऱ्यासोबत ही वस्तू तपासा, किंवा संपूर्ण फलकावर पाहा.',
   ],
   reviewOnBoard: ['Review on the full board', 'पूरे बोर्ड पर देखें', 'संपूर्ण फलकावर पाहा'],
+  restateItem: [
+    'Part of what you said could not be checked, so one word cannot fix it. Say the whole instruction for this item again: what you will do, how many, when, and anything that must happen first.',
+    'आपकी बात का कुछ हिस्सा जाँचा नहीं जा सका, इसलिए एक शब्द से यह ठीक नहीं होगा। इस सामान का पूरा निर्देश फिर से बोलें: क्या करेंगे, कितने, कब, और पहले क्या होना ज़रूरी है।',
+    'तुम्ही सांगितलेला काही भाग तपासता आला नाही, म्हणून एका शब्दाने हे सुटणार नाही. या वस्तूची संपूर्ण सूचना पुन्हा सांगा: काय कराल, किती, केव्हा, आणि आधी काय व्हायला हवे.',
+  ],
 } as const;
 
 export type CopyKey = keyof typeof copy;
@@ -306,12 +311,22 @@ export function currentQuestion(
   language: Language,
 ): string {
   const field = clarificationField(result);
+  if (field && field !== 'object' && needsFullRestatement(state, item.id))
+    return restateQuestion(item, language);
   const { attempts, bareReply } = field
     ? clarificationAttempts(state, item.id)
     : { attempts: 0, bareReply: false };
   return field && attempts > 0
     ? retryQuestion(item, field, bareReply, language)
     : clarificationQuestion(item, result, language);
+}
+
+/**
+ * The read-back has wording a short answer cannot resolve (unexplained words, a question,
+ * a negation, a second time): ask for the whole item again, never for one detail.
+ */
+export function restateQuestion(item: HandoverItem, language: Language): string {
+  return `${item.label}. ${ui(language, 'restateItem')}`;
 }
 
 /**
