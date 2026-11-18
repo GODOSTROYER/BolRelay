@@ -297,6 +297,9 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
           'UNSUPPORTED_QUANTITY_EXPRESSION',
           'AMBIGUOUS_QUANTITY',
           'INVALID_QUANTITY',
+          'UNSUPPORTED_EXCLUSION',
+          'COMPOUND_CONDITION',
+          'AMBIGUOUS_HOLD_CONDITION',
         ].includes(issue.code) ||
           (issue.code === 'UNRECOGNISED_OBJECT' &&
             /\b(?:send|dispatch|release|ship|hold|pack|collect)\b/iu.test(issue.evidence.text))),
@@ -318,6 +321,17 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
       )
     )
       throw new Error('Model action conflicts with the stated source action.');
+    // A stated prerequisite may not be dropped, nulled or narrowed to one conjunct.
+    if (
+      !claim.uncertainFields.includes('condition') &&
+      localClaims.some(
+        (candidate) =>
+          !!candidate.condition &&
+          (!claim.condition ||
+            canonicalCondition(candidate.condition) !== canonicalCondition(claim.condition)),
+      )
+    )
+      throw new Error('Model prerequisite does not preserve the stated condition.');
     return {
       ...claim,
       id: `${input.utteranceId}-claim-${index + 1}`,
