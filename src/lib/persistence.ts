@@ -11,7 +11,36 @@ const workspaceSchema = z.object({
   version: z.literal(1),
   handovers: z.array(handoverStateSchema).max(40),
   activeId: z.string().nullable(),
+  // Additive: saved data from before cross-tab protection has no counter and reads as 0.
+  writeCount: z.number().int().nonnegative().optional(),
 });
+
+/** Shown when another tab saved newer work after this tab last loaded or wrote. */
+export const STALE_WORKSPACE_MESSAGE =
+  'This handover changed in another tab — reload to see the latest. Editing here is paused; text you typed is kept.';
+
+// The write counter this tab (document) last loaded or wrote. Every save is a
+// compare-and-set against it, so a stale tab can never replace newer work.
+let knownWriteCount = 0;
+
+function storedWriteCount(raw: string): number {
+  const value = (JSON.parse(raw) as { writeCount?: unknown }).writeCount;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+/**
+ * True when saved data exists and another tab has written it since this tab last
+ * loaded or saved. Unreadable or unavailable storage is reported by the existing
+ * recovery paths instead.
+ */
+export function hasNewerSavedWorkspace(): boolean {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw !== null && storedWriteCount(raw) !== knownWriteCount;
+  } catch {
+    return false;
+  }
+}
 
 export interface WorkspaceSnapshot {
   handovers: HandoverState[];
@@ -52,52 +81,88 @@ export async function importWorkspaceBackup(file: File): Promise<WorkspaceSnapsh
 /** Explicit replacement only: validate the complete backup before touching saved data. */
 export function restoreWorkspaceBackup(raw: string): WorkspaceSnapshot {
   const restored = parseWorkspaceBackup(raw);
+  // A restore is an explicit replacement; it always advances past every counter
+  // seen so far so other open tabs become stale. The backup's own counter is ignored.
+  let previous = knownWriteCount;
+  try {
+    const current = localStorage.getItem(STORAGE_KEY);
+    if (current) previous = Math.max(previous, storedWriteCount(current));
+  } catch {
+    // Unreadable original data is being explicitly replaced.
+  }
+  const writeCount = previous + 1;
   const serialized = JSON.stringify({
     version: 1,
     handovers: restored.handovers,
     activeId: restored.activeId,
+    writeCount,
   });
   if (serialized.length > MAX_WORKSPACE_CHARACTERS)
     throw new Error(
       'This restored workspace is too large to save. Your current workspace has not changed.',
     );
   localStorage.setItem(STORAGE_KEY, serialized);
+  knownWriteCount = writeCount;
   return restored;
 }
 
+const UNREADABLE_WARNING =
+  'Saved data could not be read. The original data is still in this browser. Export or clear it before saving a new workspace.';
+
+/** Loads saved data and records its write counter as this tab's baseline. */
 export function readWorkspace(): WorkspaceSnapshot {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { handovers: [], activeId: null, warning: null };
-    return parseWorkspaceBackup(raw);
+    const snapshot = parseWorkspaceBackup(raw);
+    knownWriteCount = storedWriteCount(raw);
+    return snapshot;
   } catch {
     return {
       handovers: [],
       activeId: null,
-      warning:
-        'Saved data could not be read. The original data is still in this browser. Export or clear it before saving a new workspace.',
+      warning: UNREADABLE_WARNING,
     };
   }
 }
 
+/**
+ * Compare-and-set save: writes only when the saved write counter still equals the
+ * one this tab last loaded or wrote. A conflict leaves saved data untouched.
+ */
 export function writeWorkspace(
   handovers: HandoverState[],
   activeId: string | null,
-): { ok: boolean; error?: string } {
+): { ok: boolean; error?: string; conflict?: boolean } {
   try {
-    const current = readWorkspace();
-    if (current.warning) return { ok: false, error: current.warning };
+    const raw = localStorage.getItem(STORAGE_KEY);
+    let savedHandovers: string | null = null;
+    if (raw) {
+      try {
+        parseWorkspaceBackup(raw);
+      } catch {
+        return { ok: false, error: UNREADABLE_WARNING };
+      }
+      if (storedWriteCount(raw) !== knownWriteCount)
+        return { ok: false, conflict: true, error: STALE_WORKSPACE_MESSAGE };
+      savedHandovers = JSON.stringify((JSON.parse(raw) as { handovers: unknown }).handovers);
+    }
     const data = workspaceSchema.parse({ version: 1, handovers, activeId });
     data.handovers = data.handovers.map(restoreHandover);
     if (new Set(handovers.map((h) => h.id)).size !== handovers.length)
       throw new Error('Duplicate handover identifiers.');
-    const serialized = JSON.stringify(data);
+    // Only a change to handover content advances the counter. Selecting another
+    // handover or reopening a tab must not make other tabs stale.
+    const writeCount =
+      savedHandovers === JSON.stringify(data.handovers) ? knownWriteCount : knownWriteCount + 1;
+    const serialized = JSON.stringify({ ...data, writeCount });
     if (serialized.length > MAX_WORKSPACE_CHARACTERS)
       return {
         ok: false,
         error: 'This workspace is full. Export and remove older handovers to keep saving.',
       };
-    localStorage.setItem(STORAGE_KEY, serialized);
+    if (serialized !== raw) localStorage.setItem(STORAGE_KEY, serialized);
+    knownWriteCount = writeCount;
     return { ok: true };
   } catch {
     return {
