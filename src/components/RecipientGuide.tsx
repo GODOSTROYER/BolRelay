@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, CircleHelp } from 'lucide-react';
 import { clarificationAttempts, clarificationField } from '../domain/engine';
 import type { HandoverState, ItemComparison, Language } from '../domain/types';
@@ -77,10 +77,37 @@ export function RecipientGuide({
     state.utterances.length,
   ].join(':');
   const previousStep = useRef({ id: state.id, key: stepKey });
+  // The heading text often stays the same ("The stated actions match the plan"), so
+  // a polite status also says what was confirmed and which item and question follow.
+  const confirmedIds = comparisons.filter((result) => result.confirmed).map((r) => r.itemId);
+  const previousConfirmed = useRef(confirmedIds);
+  const [announcement, setAnnouncement] = useState('');
+  const prompt =
+    complete || !heard || !item || !current
+      ? ''
+      : current.status === 'agreement' && !current.stale
+        ? `${item.label}. ${ui(language, 'matchedTitle')}. ${describeInstruction(item, language)}`
+        : question;
   useEffect(() => {
     const previous = previousStep.current;
     previousStep.current = { id: state.id, key: stepKey };
+    const newlyConfirmed = confirmedIds.filter((id) => !previousConfirmed.current.includes(id));
+    previousConfirmed.current = confirmedIds;
     if (previous.id !== state.id || previous.key === stepKey) return;
+    const confirmedLabels = newlyConfirmed
+      .map((id) => state.items.find((entry) => entry.id === id)?.label)
+      .filter(Boolean)
+      .join(', ');
+    const message = [
+      confirmedLabels && `${ui(language, 'confirmed')}: ${confirmedLabels}.`,
+      complete
+        ? ui(language, 'completeTitle')
+        : prompt && (confirmedLabels ? `${ui(language, 'nextItem')}: ${prompt}` : prompt),
+    ]
+      .filter(Boolean)
+      .join(' ');
+    // A repeated, identical question is still announced again.
+    setAnnouncement((before) => (before === message ? `${message}\u00a0` : message));
     const section = sectionRef.current;
     if (!section) return;
     const top = section.getBoundingClientRect().top;
@@ -230,6 +257,9 @@ export function RecipientGuide({
         {ui(language, complete ? 'completeHelp' : scope ? 'targetedCheck' : 'fullCheck')}
       </p>
       {complete && <p className="field-help">{ui(language, 'meaning')}</p>}
+      <p className="sr-only" role="status" aria-atomic="true" data-testid="guide-announcement">
+        {announcement}
+      </p>
     </section>
   );
 }

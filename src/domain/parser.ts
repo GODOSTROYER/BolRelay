@@ -526,31 +526,128 @@ function boundedWord(form: string): RegExp {
   }
   return pattern;
 }
+
+/** "Yes", "OK", "हाँ", "हो" said before or after a value ("yes, 8", "eight, ok"). Never "no". */
+const affirmation =
+  'yes|yeah|yep|ok|okay|okey|sure|right|correct|fine|alright|haan|han|ha|ho|hoy|ji|theek hai|thik hai|हाँ|हां|हा|हो|होय|जी|ठीक है|ठीक आहे|ठीक|बरोबर|अच्छा|ओके|बरं';
+const answerPunctuation = `[\\s.,!?;:।'"’‘-]`;
+const affirmationOnly = new RegExp(
+  `^(?:${letterBoundary(affirmation)}|${answerPunctuation})+$`,
+  'iu',
+);
+const edgeAffirmation = new RegExp(
+  `^(?:${answerPunctuation}*${letterBoundary(affirmation)})+|(?:${letterBoundary(affirmation)}${answerPunctuation}*)+$`,
+  'giu',
+);
+const withoutAffirmation = (text: string) => text.replace(edgeAffirmation, ' ').trim();
+const withoutNames = (text: string, item: HandoverItem) =>
+  [item.id, item.label, ...item.aliases].reduce(
+    (rest, name) =>
+      rest.replace(new RegExp(letterBoundary(escape(normalizeText(name))), 'gu'), ' '),
+    text,
+  );
+const valueFiller =
+  "after|not before|at|past|from|onwards?|o'?clock|am|pm|a\\.m\\.?|p\\.m\\.?|morning|afternoon|evening|in|only|just|total|exactly|it'?s|it|is|are|there|they|them|that'?s|will|be|for|of|the|a|an|um+|uh+|hmm+|i think|i guess|parcels?|packages?|boxes|box|cartons?|pieces?|pcs|बजे|के|बाद|नंतर|वाजता|वाजल्यानंतरच?|सुबह|सवेरे|दोपहर|शाम|सकाळी?|दुपारी?|संध्याकाळी?|सिर्फ|केवल|बस|कुल|एकूण|फक्त|ही|है|हैं|आहे|आहेत|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|टुकडे|तुकडे";
+/** Count words only answer "How many?" ("quantity is 8", "all 8", "सभी आठ"). */
+const quantityFiller = 'all|quantity|count|number|सभी|सब|सारे|सगळे|सर्व';
+/** A hedge ("I think 8") keeps the read-back but leaves the asked detail open. */
+const hedgedAnswer = /\b(?:i think|i guess)\b/iu;
+
 /**
  * A reply that only gives a value for the detail being asked ("8", "eight parcels",
  * "after 3 PM", "3 बजे के बाद", "until the address is confirmed") and nothing else.
  * Only used for a single-item clarification; it never supplies an action.
  */
-function isValueFragment(numeric: string, item: HandoverItem): boolean {
-  let rest = numeric;
-  for (const name of [item.id, item.label, ...item.aliases])
-    rest = rest.replace(boundedWord(normalizeText(name)), ' ');
-  rest = rest
+function isValueFragment(numeric: string, item: HandoverItem, field?: ClaimField): boolean {
+  const rest = withoutAffirmation(withoutNames(numeric, item))
     // A prerequisite tail is the value itself.
     .replace(gateTail, ' ')
     .replace(
       /^((?:(?!address|पता|पते|पत्ता|पत्त्याची).)*)(?:address|पता|पते|पत्ता|पत्त्याची).*(?:confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित).*$/iu,
       '$1 ',
     )
-    .replace(valueWords, ' ');
+    .replace(
+      new RegExp(
+        letterBoundary(
+          field === 'quantity' || field === 'unit'
+            ? `${quantityFiller}|${valueFiller}`
+            : valueFiller,
+        ),
+        'giu',
+      ),
+      ' ',
+    );
   return rest.replace(/[\d\s.,!?;:।'"’‘-]+/gu, '').length === 0;
 }
-const valueWords = new RegExp(
-  letterBoundary(
-    "after|not before|at|past|from|onwards?|o'?clock|am|pm|a\\.m\\.?|p\\.m\\.?|morning|afternoon|evening|in|only|just|total|exactly|it'?s|it|is|are|they|them|that'?s|will|be|for|of|the|a|an|parcels?|packages?|boxes|box|cartons?|pieces?|pcs|बजे|के|बाद|नंतर|वाजता|वाजल्यानंतरच?|सुबह|सवेरे|दोपहर|शाम|सकाळी?|दुपारी?|संध्याकाळी?|सिर्फ|केवल|बस|कुल|एकूण|फक्त|है|हैं|आहे|आहेत|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|टुकडे|तुकडे",
-  ),
-  'giu',
-);
+
+/**
+ * "Send eight" or "hold" still only restates the action beside the asked value.
+ * Any other wording ("send 8 now") is a new full statement that replaces the read-back.
+ */
+function isActionWithValue(numeric: string, item: HandoverItem, field?: ClaimField): boolean {
+  const verbs = [holdMarker, dispatchMarker, packMarker, collectMarker]
+    .map((marker) => `(?:${marker.source})[\\p{L}\\p{M}]*`)
+    .join('|');
+  return isValueFragment(
+    numeric
+      .replace(/\b(?:i|we)\s+(?:will|shall)\b|\b(?:i'll|we'll)\b/giu, ' ')
+      .replace(new RegExp(verbs, 'giu'), ' '),
+    item,
+    field,
+  );
+}
+
+/** A name alone answers "Who is responsible?" ("Meena", "Meena will do it", "मीना"). */
+function ownerAnswer(text: string, items: HandoverItem[]): string | undefined {
+  const said = withoutAffirmation(text.normalize('NFC').replace(/\s+/g, ' ').trim());
+  const name =
+    /^(?:(?:the\s+)?owner\s+is\s+|assigned\s+to\s+|handled\s+by\s+|it\s+is\s+|it's\s+)?([\p{L}\p{M}]+)(?:\s+(?:will\s+(?:do|handle)\s+(?:it|this|them)|is\s+responsible))?[\s.!?।]*$/iu.exec(
+      said,
+    )?.[1];
+  if (!name) return undefined;
+  const value = normalizeText(name);
+  return !ownerStopwords.has(value) &&
+    !isBareReply(value) &&
+    !indicNegation.test(value) &&
+    !/\d/.test(normalizeNumbers(value)) &&
+    !['parcel', 'box', 'carton', 'piece'].includes(canonicalUnit(value)) &&
+    !actionFromText(value) &&
+    !addressWord.test(value) &&
+    !confirmWord.test(value) &&
+    !items.some((item) =>
+      [item.id, item.label, ...item.aliases].some((alias) => hasToken(normalizeText(alias), value)),
+    )
+    ? name
+    : undefined;
+}
+
+/**
+ * Whether a value-only prerequisite answer says "address confirmed" and nothing more.
+ * Any other word ("isn't", "optional", "already", "by anyone", "हो चुका", "झाली") may
+ * negate it or report it as done, so the prerequisite stays open.
+ */
+function addressConfirmedOnly(normal: string, item: HandoverItem): 'yes' | 'negated' | 'unclear' {
+  const rest = withoutAffirmation(withoutNames(normal, item))
+    .replace(/(?<![\p{L}\p{M}])(?:addresse?s?|पत्त्याची|पत्त्याचा|पत्ता|पते|पता)(?![\p{L}\p{M}])/giu, ' ')
+    .replace(
+      /(?<![\p{L}\p{M}])(?:confirm(?:ed|ation|s)?|verif(?:y|ied|ication)|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)(?![\p{L}\p{M}])/giu,
+      ' ',
+    );
+  if (
+    /n't\b|\b(?:no|not|never|none|nobody|without|unconfirmed|unverified|optional|already|been|done|hardly|barely|longer|unnecessary|needless|anyone|anybody|whoever|any)\b|पहले\s*ही|चुक|गया|गई|झाल|आधीच|गरज|नको/iu.test(
+      rest,
+    )
+  )
+    return 'negated';
+  return rest
+    .replace(
+      /(?<![\p{L}\p{M}])(?:the|a|an|be|to|must|should|needs?|needed|required|has|have|first|only|get|gets|होना|होने|होनी|हो|करना|करने|करें|ज़रूरी|जरूरी|चाहिए|का|की|के|पहले|व्हायला|व्हावी|हवी|हवे|हवा|पाहिजे|होणे|करणे|आधी)(?![\p{L}\p{M}])/giu,
+      ' ',
+    )
+    .replace(/[\s.,!?;:।'"’‘-]+/gu, '').length === 0
+    ? 'yes'
+    : 'unclear';
+}
 
 function unknownIdentifier(text: string, items: HandoverItem[]): boolean {
   const tokens =
@@ -991,11 +1088,22 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     );
     clauses = [];
   }
+  // A reply with its own action and other wording ("send 8 now") is a full statement,
+  // never a short answer completed from the earlier read-back.
+  let shortAnswer = true;
   for (const span of clauses) {
     const evidence = { ...span, utteranceId };
     // "बिना शर्त" / "unconditionally" states that there is no prerequisite; it is not a negation.
     const normal = normalizeText(span.text).replace(explicitNoCondition, ' ').replace(/\s+/g, ' ');
     const numeric = normalizeNumbers(normal);
+    // "Yes, 8": the acknowledgement beside the value adds nothing and names no item.
+    if (answerField && affirmationOnly.test(normal)) continue;
+    if (
+      answerField &&
+      actionFromText(normal) &&
+      !isActionWithValue(numeric, answerItem!, answerField)
+    )
+      shortAnswer = false;
     if (exclusionMarker.test(normal) || /\bminus\s+(?!\d)/iu.test(numeric)) {
       // "Send all except J1" names J1 but means the opposite for it. Never
       // turn the excluded item into the target; ask for an explicit list.
@@ -1008,8 +1116,14 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       );
       continue;
     }
+    const ownerReply =
+      answerField === 'owner' && !actionFromText(normal)
+        ? ownerAnswer(span.text, input.items)
+        : undefined;
     const fragment =
-      !!answerField && !actionFromText(normal) && isValueFragment(numeric, answerItem!);
+      !!answerField &&
+      !actionFromText(normal) &&
+      (!!ownerReply || isValueFragment(numeric, answerItem!, answerField));
     const explicitIds = input.items
       .filter((item) => hasToken(normal, item.id))
       .map((item) => item.id);
@@ -1036,7 +1150,8 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
             hasToken(normal, alias) && !explicitNames.some((name) => hasToken(name, alias)),
         ),
     );
-    const globalReference = targets.length === 0 && allMarker.test(normal);
+    // "All 8" answering a one-item question counts that item; it never reaches others.
+    const globalReference = targets.length === 0 && !fragment && allMarker.test(normal);
     if (globalReference) targets = input.items;
     if (unknownIdentifier(normal, input.items)) {
       issue(
@@ -1157,8 +1272,11 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'UNSUPPORTED_NEGATION',
         'This negated action needs an explicit next-action clarification.',
       );
+    // A value-only prerequisite answer has no verb: its negation belongs to the prerequisite
+    // and is judged by addressConfirmedOnly (NEGATED_PREREQUISITE), not as a negated action.
+    const prerequisiteAnswer = fragment && answerField === 'condition';
     if (
-      testEnglishNegation(normal.replace(prohibitedDispatchAll, ' ')) ||
+      (!prerequisiteAnswer && testEnglishNegation(normal.replace(prohibitedDispatchAll, ' '))) ||
       unsupportedIndicNegation(normal, fragment)
     )
       uncertain(
@@ -1167,12 +1285,41 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly.',
       );
 
+    if (fragment && hedgedAnswer.test(normal))
+      uncertain(
+        answerField!,
+        'UNCERTAIN_ANSWER',
+        'This answer is hedged. Say the value only when you are sure of it.',
+      );
+
     let clock = timeFromClause(numeric);
-    // "3 PM" answers "At what time may this start?"; a bare "3" stays ambiguous.
-    if (fragment && answerField === 'notBefore' && !clock.time && !clock.ambiguous)
-      clock = timeFromClause(
+    // "3 PM", "8 o'clock" or "शाम 4 बजे" in a short answer is a time whatever was asked;
+    // "20 parcels" never is. A bare number answering the time question stays ambiguous.
+    if (
+      fragment &&
+      !clock.time &&
+      !clock.ambiguous &&
+      /\d/.test(numeric) &&
+      !/\d\s*(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs|पार्सल|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे)/iu.test(
+        numeric,
+      )
+    ) {
+      const timed = timeFromClause(
         numeric.replace(/(?<![\p{L}\p{N}:])(\d{1,2}(?::\d{2})?)(?![\p{N}:])/u, 'at $1'),
       );
+      if (
+        /\d\s*(?:am|pm|a\.m|p\.m|o'?clock|बजे|वाजता)|\d:\d{2}|\b(?:morning|afternoon|evening|dawn)\b|सुबह|सवेरे|दोपहर|शाम|सकाळ|दुपार|संध्याकाळ/iu.test(
+          numeric,
+        )
+      )
+        clock = timed;
+      else if (answerField === 'notBefore')
+        clock = {
+          cleaned: timed.cleaned,
+          ambiguous: true,
+          unsupportedBefore: timed.unsupportedBefore,
+        };
+    }
     // "Do not send after three" is not "hold until three"; never invert a negated time.
     const negatedTime =
       prohibitedDispatch.test(normal) && (!!clock.time || /पहले|आधी|अगोदर|पूर्वी/u.test(normal));
@@ -1228,17 +1375,27 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     // A clock phrase ("after 3 PM", "तीन बजे के बाद") is a time, not a prerequisite.
     const timeFree = clock.cleaned;
     // A value-only answer to "What is the prerequisite?" ("address confirmed", "पता कन्फर्म").
+    // Only those words count; anything else may negate it or say it is already done.
+    // (A Hindi/Marathi negation is reported as a negated prerequisite below.)
     if (
       fragment &&
       !gateMarker.test(normal) &&
       !conditionalMarker.test(clock.cleaned) &&
       addressWord.test(normal) &&
       confirmWord.test(normal) &&
-      !conjunction.test(normal) &&
-      !testEnglishNegation(normal) &&
       !indicNegation.test(normal)
-    )
-      condition = 'address confirmed';
+    ) {
+      const reading = addressConfirmedOnly(normal, answerItem!);
+      if (reading === 'yes') condition = 'address confirmed';
+      else
+        uncertain(
+          'condition',
+          reading === 'negated' ? 'NEGATED_PREREQUISITE' : 'UNRECOGNISED_CONDITION',
+          reading === 'negated'
+            ? 'The prerequisite may be negated or already done. Say what must happen before release, starting with "until".'
+            : 'Repeat the prerequisite explicitly. Local rules could not identify it.',
+        );
+    }
     if (clock.time && timeWithPrerequisite.test(numeric))
       uncertain(
         'condition',
@@ -1335,10 +1492,11 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'AMBIGUOUS_OWNER',
         'More than one person, or an unclear name, is mentioned for this work. Say who owns it.',
       );
-    const owner = heardOwner.owner;
+    const owner = heardOwner.owner ?? ownerReply;
 
     // Closed world: a clean claim needs every word to be accounted for by the rules.
-    if (uncertainFields.length === 0) {
+    // A value-only short answer already passed its own closed-world check (isValueFragment).
+    if (uncertainFields.length === 0 && !fragment) {
       const leftover = unexplainedWords({
         text: timeFree,
         items: input.items,
@@ -1404,7 +1562,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       ? {
           readbackMode: input.scopeItemIds ? ('targeted' as const) : ('full' as const),
           ...(input.scopeItemIds ? { scopeItemIds: [...input.scopeItemIds] } : {}),
-          ...(answerField ? { answerField } : {}),
+          ...(answerField && shortAnswer ? { answerField } : {}),
         }
       : {}),
     itemRevisions: Object.fromEntries(input.items.map((item) => [item.id, item.revision])),

@@ -67,7 +67,7 @@ import { Modal } from './components/Modal';
 import { VoiceComposer } from './components/VoiceComposer';
 import { SpokenHandover } from './components/SpokenHandover';
 import { RecipientGuide } from './components/RecipientGuide';
-import { ui } from './lib/language';
+import { currentQuestion, ui } from './lib/language';
 import type { CapturedAudio } from './hooks/useVoiceCapture';
 import './styles.css';
 
@@ -141,6 +141,16 @@ export default function App() {
   const comparisons = useMemo(() => compareHandover(active), [active]);
   const isDemo = active.id.startsWith('demo-');
   const complete = comparisons.length > 0 && comparisons.every((result) => result.confirmed);
+  // The guided question stays beside the field while an on-screen keyboard hides the guide.
+  const scopedItem =
+    guided && role === 'incoming' && scope
+      ? active.items.find((item) => item.id === scope)
+      : undefined;
+  const scopedComparison = comparisons.find((result) => result.itemId === scopedItem?.id);
+  const scopeQuestion =
+    scopedItem && scopedComparison && clarificationField(scopedComparison)
+      ? currentQuestion(active, scopedItem, scopedComparison, language)
+      : undefined;
   const matches =
     comparisons.length > 0 &&
     comparisons.every((result) => result.status === 'agreement' && !result.stale);
@@ -955,6 +965,7 @@ export default function App() {
                   onSubmit={() => void checkTranscript()}
                   onAudio={setPendingAudio}
                   scope={scope ? active.items.find((item) => item.id === scope)?.label : undefined}
+                  scopeQuestion={scopeQuestion}
                   clearScope={() => {
                     setScope(null);
                     setPendingAudio(null);

@@ -596,6 +596,10 @@ export function clarificationAttempts(
   const result = item && compareHandover(state).find((entry) => entry.itemId === itemId);
   const field = result && clarificationField(result);
   let attempts = 0;
+  // Unresolved answers to any question about this item since one last supplied its value,
+  // so a reply that only moves the question elsewhere still escalates.
+  let unresolved = 0;
+  let progressed = false;
   let bareReply: boolean | undefined;
   if (!item || !field) return { attempts, bareReply: false };
   for (const utterance of [...state.utterances].reverse()) {
@@ -608,11 +612,22 @@ export function clarificationAttempts(
       utterance.itemRevisions[itemId] !== item.revision
     )
       break;
-    if (utterance.answerField !== field) continue;
+    const asked = utterance.answerField;
+    if (asked && !progressed) {
+      const claim = utterance.claims.find((entry) => entry.itemIds.includes(itemId));
+      if (
+        claim?.basis?.fields.includes(asked) &&
+        claim[asked as keyof ParsedClaim] !== undefined &&
+        !claim.uncertainFields.includes(asked)
+      )
+        progressed = true;
+      else unresolved++;
+    }
+    if (asked !== field) continue;
     attempts++;
     bareReply ??= utterance.issues.some((issue) => issue.code === 'BARE_ACKNOWLEDGEMENT');
   }
-  return { attempts, bareReply: !!bareReply };
+  return { attempts: Math.max(attempts, unresolved), bareReply: !!bareReply };
 }
 
 const valueFields = ['action', 'quantity', 'unit', 'notBefore', 'condition', 'owner'] as const;
@@ -650,7 +665,7 @@ export function mergeShortAnswer(
   basisClaims: ParsedClaim[],
   basisIssues: ParseIssue[],
 ): ParsedTranscript | undefined {
-  const allowed = answerableFields[parsed.answerField!];
+  const allowed = (parsed.answerField && answerableFields[parsed.answerField]) || [];
   const basis = basisClaims[0];
   const answer = parsed.claims[0];
   const bare = parsed.issues.find((issue) => issue.code === 'BARE_ACKNOWLEDGEMENT');
@@ -660,7 +675,6 @@ export function mergeShortAnswer(
     !basis ||
     stable(basis.itemIds) !== stable([itemId]) ||
     parsed.claims.length > 1 ||
-    (!answer && !bare) ||
     (answer && (stable(answer.itemIds) !== stable([itemId]) || answer.basis)) ||
     answer?.uncertainFields.includes('object') ||
     // Earlier uncertainty must stay visible unless this answer addresses it.
@@ -691,7 +705,24 @@ export function mergeShortAnswer(
     else if (fragment) otherFields.push(field);
     else return undefined; // A different full statement replaces the earlier one.
   }
-  const evidence = answer?.evidence ?? bare!.evidence;
+  // A prerequisite or time said for a different action ("send once the address is
+  // confirmed", then "hold") may start rather than end the new action: ask again.
+  const reopened =
+    answer?.action && basis.action && answer.action !== basis.action
+      ? (['condition', 'notBefore'] as const).filter(
+          (field) =>
+            !fields.includes(field) &&
+            (basis[field] !== undefined || basis.uncertainFields.includes(field)),
+        )
+      : [];
+  otherFields.push(...reopened);
+  const evidence = answer?.evidence ??
+    bare?.evidence ?? {
+      utteranceId: parsed.utteranceId,
+      start: 0,
+      end: parsed.text.length,
+      text: parsed.text,
+    };
   const merged: ParsedClaim = {
     id: answer?.id ?? `${parsed.utteranceId}-claim-1`,
     itemIds: [itemId],
@@ -719,16 +750,32 @@ export function mergeShortAnswer(
         : basis.uncertainFields.includes(field))
     )
       merged.uncertainFields.push(field);
-  const issues = [...parsed.issues];
+  // The item is known in a one-item clarification: an unusable reply ("Nagpur",
+  // "banana") keeps the earlier statement and asks the same detail again.
+  const issues = parsed.issues.map((issue) =>
+    issue.field === 'object' ? { ...issue, field: parsed.answerField! } : issue,
+  );
   // A detail outside the question is neither accepted nor allowed to stand unchallenged.
   for (const field of otherFields)
-    issues.push({
-      code: 'ANSWER_FOR_OTHER_DETAIL',
-      message: 'This reply states a different detail than the one asked. Restate it for this item.',
-      itemIds: [itemId],
-      field,
-      evidence,
-    });
+    issues.push(
+      reopened.includes(field as (typeof reopened)[number])
+        ? {
+            code: 'AMBIGUOUS_HOLD_CONDITION',
+            message:
+              'This detail was said for a different action. Say it again for the new action, for example "hold until" the release prerequisite.',
+            itemIds: [itemId],
+            field,
+            evidence,
+          }
+        : {
+            code: 'ANSWER_FOR_OTHER_DETAIL',
+            message:
+              'This reply states a different detail than the one asked. Restate it for this item.',
+            itemIds: [itemId],
+            field,
+            evidence,
+          },
+    );
   if (!bare && fields.length === 0 && otherFields.length === 0)
     issues.push({
       code: 'NO_ANSWER_VALUE',
@@ -1192,10 +1239,20 @@ function validateAndRevalidate(value: unknown, options: RestoreOptions): Handove
     for (const claim of utterance.claims) {
       if (!claim.basis) continue;
       const id = claim.itemIds[0]!;
+      // The basis must be the worker's latest earlier statement covering this item;
+      // a read-back superseded by a later one is no longer theirs to complete.
       const source = state.utterances
         .slice(0, index)
-        .find((candidate) => candidate.utteranceId === claim.basis!.utteranceId);
-      const basis = source?.claims.find((candidate) => candidate.id === claim.basis!.claimId);
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.role === 'incoming' &&
+            (!candidate.scopeItemIds || candidate.scopeItemIds.includes(id)),
+        );
+      const basis =
+        source?.utteranceId === claim.basis.utteranceId
+          ? source.claims.find((candidate) => candidate.id === claim.basis!.claimId)
+          : undefined;
       if (
         !source ||
         source.role !== 'incoming' ||
