@@ -16,5 +16,5 @@
     "jsx": "react-jsx",
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "server", "api", "tests", "e2e", "*.config.ts"]
+  "include": ["src", "server", "api", "tests", "e2e", "eval", "*.config.ts"]
 }
