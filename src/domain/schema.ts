@@ -55,6 +55,9 @@ export const parsedClaimSchema = z.object({
   owner: shortText.nullable().optional(),
   uncertainFields: z.array(field).max(7),
   evidence: evidenceSchema,
+  basis: z
+    .object({ utteranceId: identifier, claimId: identifier, fields: z.array(field).max(7) })
+    .optional(),
 });
 
 export const parseIssueSchema = z.object({
@@ -77,6 +80,7 @@ const parsedShape = {
   parser: z.enum(['local-rules', 'model']),
   readbackMode: z.enum(['full', 'targeted']).optional(),
   scopeItemIds: z.array(identifier).min(1).max(100).optional(),
+  answerField: field.optional(),
   itemRevisions: z.record(identifier, revision),
   claims: z.array(parsedClaimSchema).max(100),
   issues: z.array(parseIssueSchema).max(100),

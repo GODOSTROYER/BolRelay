@@ -20,7 +20,9 @@ import {
   X,
 } from 'lucide-react';
 import {
+  clarificationField,
   compareHandover,
+  completeShortAnswer,
   confirmItem,
   createDemoHandover,
   createHandover,
@@ -263,6 +265,12 @@ export default function App() {
     setError('');
     const audio = pendingAudio;
     const readbackScope = role === 'incoming' && scope ? [scope] : undefined;
+    // The local rules can accept a short answer to the one detail currently asked.
+    const scopedResult = comparisons.find((result) => result.itemId === scope);
+    const answerField =
+      readbackScope && scopedResult && mode === 'local'
+        ? clarificationField(scopedResult)
+        : undefined;
     try {
       const parsed = await analyzeTranscript(
         {
@@ -272,6 +280,7 @@ export default function App() {
           items: active.items,
           utteranceId: crypto.randomUUID(),
           ...(readbackScope ? { scopeItemIds: readbackScope } : {}),
+          ...(answerField ? { answerField } : {}),
         },
         { mode, accessToken },
       );
@@ -288,7 +297,7 @@ export default function App() {
       } else {
         if (
           commit(targetId, (state) =>
-            recordReadback(state, parsed, {
+            recordReadback(state, completeShortAnswer(state, parsed), {
               mode: readbackScope ? 'targeted' : 'full',
               ...(readbackScope ? { scopeItemIds: readbackScope } : {}),
             }),
@@ -772,6 +781,7 @@ export default function App() {
                     scope={scope}
                     onClarify={clarifyItem}
                     onConfirm={confirmOne}
+                    onReview={() => setGuided(false)}
                     busy={busy}
                   />
                 )}

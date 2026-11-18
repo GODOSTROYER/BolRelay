@@ -158,6 +158,45 @@ function hasOnlyImplicitObject(text: string): boolean {
   return rest.length === 0;
 }
 
+const letterBoundary = (body: string) =>
+  `(?<![\\p{L}\\p{M}\\p{N}])(?:${body})(?![\\p{L}\\p{M}\\p{N}])`;
+const bareReply = new RegExp(
+  `^(?:${letterBoundary(
+    'yes|yeah|yep|ok|okay|okey|sure|right|correct|fine|done|alright|understood|got it|no|nope|haan|han|ha|ho|hoy|ji|theek hai|thik hai|हाँ|हां|हा|हो|होय|जी|ठीक|ठीक है|ठीक आहे|बरोबर|अच्छा|ओके|बरं|नहीं|नाही',
+  )}|[\\s.,!?;:।'"’‘-])+$`,
+  'iu',
+);
+
+/** "Yes", "OK", "हाँ", "हो": a bare reply never states the value that was asked. */
+export function isBareReply(text: string): boolean {
+  return bareReply.test(normalizeText(text));
+}
+
+/**
+ * A reply that only gives a value for the detail being asked ("8", "eight parcels",
+ * "after 3 PM", "3 बजे के बाद", "until the address is confirmed") and nothing else.
+ * Only used for a single-item clarification; it never supplies an action.
+ */
+function isValueFragment(numeric: string, item: HandoverItem): boolean {
+  let rest = numeric;
+  for (const name of [item.id, item.label, ...item.aliases])
+    rest = rest.replace(new RegExp(letterBoundary(escape(normalizeText(name))), 'gu'), ' ');
+  rest = rest
+    // A prerequisite tail is the value itself.
+    .replace(new RegExp(`(?:${gateMarker.source}).*$`, 'iu'), ' ')
+    .replace(/(?:address|पता|पते|पत्ता|पत्त्याची).*(?:confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित).*$/iu, ' ')
+    .replace(
+      new RegExp(
+        letterBoundary(
+          "after|not before|at|past|from|onwards?|o'?clock|am|pm|a\\.m\\.?|p\\.m\\.?|morning|afternoon|evening|in|only|just|total|exactly|it'?s|it|is|are|they|them|that'?s|will|be|for|of|the|a|an|parcels?|packages?|boxes|box|cartons?|pieces?|pcs|बजे|के|बाद|नंतर|वाजता|वाजल्यानंतरच?|सुबह|सवेरे|दोपहर|शाम|सकाळी?|दुपारी?|संध्याकाळी?|सिर्फ|केवल|बस|कुल|एकूण|फक्त|है|हैं|आहे|आहेत|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे",
+        ),
+        'giu',
+      ),
+      ' ',
+    );
+  return rest.replace(/[\d\s.,!?;:।'"’‘-]+/gu, '').length === 0;
+}
+
 function unknownIdentifier(text: string, items: HandoverItem[]): boolean {
   const tokens =
     text.match(/(?<![\p{L}\p{N}])[\p{L}]+[-_]?\d+[\p{L}\p{N}_-]*(?![\p{L}\p{N}])/gu) ?? [];
@@ -250,11 +289,28 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     field: ClaimField,
     evidence: Evidence,
   ) => issues.push({ code, message, itemIds, field, evidence });
+  // A single-item clarification may be answered with only the value that was asked.
+  const answerItem =
+    input.role === 'incoming' && scope.length === 1 && input.scopeItemIds?.length === 1
+      ? scope[0]
+      : undefined;
+  const answerField = answerItem ? input.answerField : undefined;
+  if (answerItem && text.length > 0 && isBareReply(text)) {
+    issue(
+      'BARE_ACKNOWLEDGEMENT',
+      'A yes, no, or okay does not state the detail that was asked. Say the value itself.',
+      [answerItem.id],
+      answerField ?? 'action',
+      { utteranceId, start: 0, end: text.length, text },
+    );
+  }
 
-  for (const span of splitClauses(text)) {
+  for (const span of isBareReply(text) && answerItem ? [] : splitClauses(text)) {
     const evidence = { ...span, utteranceId };
     const normal = normalizeText(span.text);
     const numeric = normalizeNumbers(normal);
+    const fragment =
+      !!answerField && !actionFromText(normal) && isValueFragment(numeric, answerItem!);
     const explicitIds = input.items
       .filter((item) => hasToken(normal, item.id))
       .map((item) => item.id);
@@ -276,7 +332,11 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       );
       continue;
     }
-    if (targets.length === 0 && input.scopeItemIds?.length === 1 && hasOnlyImplicitObject(normal))
+    if (
+      targets.length === 0 &&
+      input.scopeItemIds?.length === 1 &&
+      (hasOnlyImplicitObject(normal) || fragment)
+    )
       targets = scope;
     if (targets.length === 0) {
       issue(
@@ -329,7 +389,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'COMPETING_ACTIONS',
         'This reply contains competing or alternative actions. State one next action and its prerequisite explicitly.',
       );
-    if (!action)
+    if (!action && !fragment)
       uncertain(
         'action',
         'UNRECOGNISED_ACTION',
@@ -374,7 +434,9 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'This negated action needs an explicit next-action clarification.',
       );
     const supportedIndicUntil =
-      /जब\s*तक|जोपर्यंत/iu.test(normal) && action === 'hold' && /(address|पता|पत्त)/iu.test(normal);
+      /जब\s*तक|जोपर्यंत/iu.test(normal) &&
+      (action === 'hold' || fragment) &&
+      /(address|पता|पत्त)/iu.test(normal);
     if (
       /\b(?:not|never|without|won't|don't|can't|cannot)\b|नहीं|नाही|मत/iu.test(normal) &&
       !prohibitedDispatch.test(normal) &&
@@ -387,7 +449,12 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'The local rules cannot safely interpret this negation. State the intended action and prerequisite explicitly.',
       );
 
-    const clock = timeFromClause(numeric);
+    let clock = timeFromClause(numeric);
+    // "3 PM" answers "At what time may this start?"; a bare "3" stays ambiguous.
+    if (fragment && answerField === 'notBefore' && !clock.time && !clock.ambiguous)
+      clock = timeFromClause(
+        numeric.replace(/(?<![\p{L}\p{N}:])(\d{1,2}(?::\d{2})?)(?![\p{N}:])/u, 'at $1'),
+      );
     if (clock.ambiguous)
       uncertain('notBefore', 'AMBIGUOUS_TIME', 'Say the time with AM/PM or use a 24-hour time.');
     if (clock.unsupportedBefore)
@@ -472,7 +539,15 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       );
 
     let condition: string | undefined;
-    if (gateMarker.test(normal)) {
+    if (
+      fragment &&
+      !gateMarker.test(normal) &&
+      /(address|पता|पते|पत्ता|पत्त्याची)/u.test(normal) &&
+      /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित)/u.test(normal) &&
+      !/\b(?:not|never|without|unconfirmed)\b|नहीं|नाही/iu.test(normal)
+    )
+      condition = 'address confirmed';
+    else if (gateMarker.test(normal)) {
       if (
         /(address|पता|पते|पत्ता|पत्त्याची)/u.test(normal) &&
         /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u.test(normal)
@@ -546,6 +621,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       ? {
           readbackMode: input.scopeItemIds ? ('targeted' as const) : ('full' as const),
           ...(input.scopeItemIds ? { scopeItemIds: [...input.scopeItemIds] } : {}),
+          ...(answerField ? { answerField } : {}),
         }
       : {}),
     itemRevisions: Object.fromEntries(input.items.map((item) => [item.id, item.revision])),

@@ -100,8 +100,8 @@ export function ComparisonPanel({
         const item = state.items.find((entry) => entry.id === result.itemId)!;
         const readback = state.readbacks[item.id];
         const source = item.evidence[0];
-        const spoken = readback?.claims
-          .map((claim) => claim.evidence.text)
+        const spoken = result.evidence
+          .map((evidence) => evidence.text)
           .filter((text, i, all) => all.indexOf(text) === i)
           .join(' ');
         return (
