@@ -88,7 +88,20 @@ const englishCompound = new RegExp(
 );
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Locale-aware lowercasing is slow, and names, aliases and tokens are normalised once per
+// clause: a bounded memo keeps a transcript of thousands of short clauses linear and fast.
+const normalizedShort = new Map<string, string>();
 export function normalizeText(text: string): string {
+  if (text.length > 64) return normalizeUncached(text);
+  let value = normalizedShort.get(text);
+  if (value === undefined) {
+    if (normalizedShort.size >= 4096) normalizedShort.clear();
+    value = normalizeUncached(text);
+    normalizedShort.set(text, value);
+  }
+  return value;
+}
+function normalizeUncached(text: string): string {
   return text
     .normalize('NFC')
     .toLocaleLowerCase('en-IN')
@@ -98,8 +111,19 @@ export function normalizeText(text: string): string {
     .trim();
 }
 
+const numericShort = new Map<string, string>();
 /** Normalisation for interpreted values only; evidence keeps original text and offsets. */
 export function normalizeNumbers(text: string): string {
+  if (text.length > 64) return numbersUncached(text);
+  let value = numericShort.get(text);
+  if (value === undefined) {
+    if (numericShort.size >= 4096) numericShort.clear();
+    value = numbersUncached(text);
+    numericShort.set(text, value);
+  }
+  return value;
+}
+function numbersUncached(text: string): string {
   return normalizeText(text)
     .replace(englishCompound, (_, tens: string, unit: string) =>
       String(Number(numberWords[tens]) + englishUnits.indexOf(unit) + 1),
@@ -153,10 +177,20 @@ export function canonicalCondition(condition: string): string {
   return [...new Set(parts)].sort().join(' and ');
 }
 
-const hasToken = (text: string, token: string) =>
-  new RegExp(`(?<![\\p{L}\\p{N}])${escape(normalizeText(token))}(?![\\p{L}\\p{N}])`, 'u').test(
-    text,
-  );
+// Compiled once per token: a transcript of thousands of clauses re-tests the same names.
+const tokenPatterns = new Map<string, RegExp>();
+const hasToken = (text: string, token: string) => {
+  let pattern = tokenPatterns.get(token);
+  if (!pattern) {
+    if (tokenPatterns.size >= 4096) tokenPatterns.clear();
+    pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])${escape(normalizeText(token))}(?![\\p{L}\\p{N}])`,
+      'u',
+    );
+    tokenPatterns.set(token, pattern);
+  }
+  return pattern.test(text);
+};
 const allMarker = /\b(?:all|everything|both)\b|सभी|सब(?:को|के)?|सारे|सगळे|सर्व/iu;
 const holdMarker = /\b(?:hold|wait|keep|retain|stay|remain)\b|रोक|रुके|रख|थांब|ठेव/iu;
 const dispatchMarker = /\b(?:send|dispatch|release|ship|leave)\b|भेज|रवाना|पाठव|सोड/iu;
@@ -169,9 +203,9 @@ const prohibitedDispatch =
 const prohibitedDispatchAll = new RegExp(prohibitedDispatch.source, 'giu');
 // Pleonastic negation of the supported "until" idioms: जब तक … नहीं होता / जोपर्यंत … होत नाही.
 const indicUntilNegation =
-  /जब\s*तक\s+[^,;।]*?(?<![\p{L}\p{M}])(?:नहीं|नही|न)\s+हो[\p{L}\p{M}]*|जोपर्यंत\s+[^,;।]*?(?:होत|होणार|झाला|झाली|झाले)\s+नाही(?![\p{L}\p{M}])/giu;
+  /जब\s*तक\s+[^,;।]{0,200}?(?<![\p{L}\p{M}])(?:नहीं|नही|न)\s+हो[\p{L}\p{M}]*|जोपर्यंत\s+[^,;।]{0,200}?(?:होत|होणार|झाला|झाली|झाले)\s+नाही(?![\p{L}\p{M}])/giu;
 const indicNegatedHold =
-  /(?<![\p{L}\p{M}])(?:मत|नहीं|नही|न|ना|नको)\s+(?:रोक|रुक|रख|थांब|ठेव)|(?:रोक|रुक|रख|थांब|ठेव)[\p{L}\p{M}]*\s+(?:मत|नहीं|नही|ना|नाही|नाहीत|नका|नको|नकोस|नये)(?![\p{L}\p{M}])/giu;
+  /(?<![\p{L}\p{M}])(?:मत|नहीं|नही|न|ना|नको)\s+(?:रोक|रुक|रख|थांब|ठेव)|(?:रोक|रुक|रख|थांब|ठेव)(?:(?!रोक|रुक|रख|थांब|ठेव)[\p{L}\p{M}])*\s+(?:मत|नहीं|नही|ना|नाही|नाहीत|नका|नको|नकोस|नये)(?![\p{L}\p{M}])/giu;
 
 /** The Indic text left after removing supported prohibitions and supported "until" idioms. */
 function unexplainedIndicText(normal: string, valueAnswer = false): string {
@@ -253,6 +287,19 @@ export function isBareReply(text: string): boolean {
   return bareReply.test(normalizeText(text));
 }
 
+// Compiled once, not per clause: a long transcript of short clauses stays fast.
+const gateTail = new RegExp(`(?:${gateMarker.source}).*$`, 'iu');
+const wordPatterns = new Map<string, RegExp>();
+/** A global pattern for one already-normalised word or name, bounded by non-letters. */
+function boundedWord(form: string): RegExp {
+  let pattern = wordPatterns.get(form);
+  if (!pattern) {
+    if (wordPatterns.size >= 4096) wordPatterns.clear();
+    pattern = new RegExp(letterBoundary(escape(form)), 'gu');
+    wordPatterns.set(form, pattern);
+  }
+  return pattern;
+}
 /**
  * A reply that only gives a value for the detail being asked ("8", "eight parcels",
  * "after 3 PM", "3 बजे के बाद", "until the address is confirmed") and nothing else.
@@ -261,22 +308,23 @@ export function isBareReply(text: string): boolean {
 function isValueFragment(numeric: string, item: HandoverItem): boolean {
   let rest = numeric;
   for (const name of [item.id, item.label, ...item.aliases])
-    rest = rest.replace(new RegExp(letterBoundary(escape(normalizeText(name))), 'gu'), ' ');
+    rest = rest.replace(boundedWord(normalizeText(name)), ' ');
   rest = rest
     // A prerequisite tail is the value itself.
-    .replace(new RegExp(`(?:${gateMarker.source}).*$`, 'iu'), ' ')
-    .replace(/(?:address|पता|पते|पत्ता|पत्त्याची).*(?:confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित).*$/iu, ' ')
+    .replace(gateTail, ' ')
     .replace(
-      new RegExp(
-        letterBoundary(
-          "after|not before|at|past|from|onwards?|o'?clock|am|pm|a\\.m\\.?|p\\.m\\.?|morning|afternoon|evening|in|only|just|total|exactly|it'?s|it|is|are|they|them|that'?s|will|be|for|of|the|a|an|parcels?|packages?|boxes|box|cartons?|pieces?|pcs|बजे|के|बाद|नंतर|वाजता|वाजल्यानंतरच?|सुबह|सवेरे|दोपहर|शाम|सकाळी?|दुपारी?|संध्याकाळी?|सिर्फ|केवल|बस|कुल|एकूण|फक्त|है|हैं|आहे|आहेत|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे",
-        ),
-        'giu',
-      ),
-      ' ',
-    );
+      /^((?:(?!address|पता|पते|पत्ता|पत्त्याची).)*)(?:address|पता|पते|पत्ता|पत्त्याची).*(?:confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित).*$/iu,
+      '$1 ',
+    )
+    .replace(valueWords, ' ');
   return rest.replace(/[\d\s.,!?;:।'"’‘-]+/gu, '').length === 0;
 }
+const valueWords = new RegExp(
+  letterBoundary(
+    "after|not before|at|past|from|onwards?|o'?clock|am|pm|a\\.m\\.?|p\\.m\\.?|morning|afternoon|evening|in|only|just|total|exactly|it'?s|it|is|are|they|them|that'?s|will|be|for|of|the|a|an|parcels?|packages?|boxes|box|cartons?|pieces?|pcs|बजे|के|बाद|नंतर|वाजता|वाजल्यानंतरच?|सुबह|सवेरे|दोपहर|शाम|सकाळी?|दुपारी?|संध्याकाळी?|सिर्फ|केवल|बस|कुल|एकूण|फक्त|है|हैं|आहे|आहेत|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे",
+  ),
+  'giu',
+);
 
 function unknownIdentifier(text: string, items: HandoverItem[]): boolean {
   const tokens =
@@ -324,19 +372,23 @@ export function splitClauses(text: string): Evidence[] {
   return spans;
 }
 
+const clockPattern =
+  '(\\d{1,2})(?::(\\d{2}))?\\s*(?:(am|pm|a\\.m\\.?|p\\.m\\.?)(?![\\p{L}\\p{N}]))?';
+const clockPrefix = new RegExp(
+  `\\b(?:after|not before|at|past)\\s+(?:exactly\\s+)?${clockPattern}`,
+  'iu',
+);
+const clockSuffix = new RegExp(
+  `${clockPattern}\\s*(?:(?:बजे|वाजता)?\\s*(?:के\\s*)?(?:बाद|नंतर)|वाजल्यानंतर(?:च)?)`,
+  'iu',
+);
 export function timeFromClause(text: string): {
   time?: string;
   cleaned: string;
   ambiguous: boolean;
   unsupportedBefore: boolean;
 } {
-  const clock = '(\\d{1,2})(?::(\\d{2}))?\\s*(?:(am|pm|a\\.m\\.?|p\\.m\\.?)(?![\\p{L}\\p{N}]))?';
-  const prefix = new RegExp(`\\b(?:after|not before|at|past)\\s+(?:exactly\\s+)?${clock}`, 'iu');
-  const suffix = new RegExp(
-    `${clock}\\s*(?:(?:बजे|वाजता)?\\s*(?:के\\s*)?(?:बाद|नंतर)|वाजल्यानंतर(?:च)?)`,
-    'iu',
-  );
-  const match = prefix.exec(text) ?? suffix.exec(text);
+  const match = clockPrefix.exec(text) ?? clockSuffix.exec(text);
   const unsupportedBefore = /\bbefore\b/iu.test(text) && !/\bnot before\b/iu.test(text);
   if (!match) return { cleaned: text, ambiguous: false, unsupportedBefore };
   let hour = Number(match[1]);
@@ -372,6 +424,19 @@ const ownerStopwords = new Set(
     ...['ही', 'अब', 'अभी', 'आज', 'और', 'के', 'की', 'का', 'को', 'पर', 'में', 'से', 'बाद', 'तक'],
     ...['बजे', 'कर', 'मत', 'नहीं', 'मी', 'आम्ही', 'तू', 'तुम्ही', 'ती', 'ते', 'हा', 'हे', 'मग'],
     ...['आता', 'आणि', 'नंतर', 'पर्यंत', 'तोपर्यंत', 'वाजता', 'नाही'],
+    // Discourse, courtesy, time-of-day, honorific and prerequisite words are never a name.
+    ...['not', 'no', 'either', 'neither', 'nor', 'or', 'please', 'okay', 'ok', 'yes', 'yeah'],
+    ...['sure', 'today', 'tonight', 'morning', 'afternoon', 'evening', 'tomorrow', 'for', 'by'],
+    ...['to', 'of', 'at', 'in', 'on', 'from', 'with', 'after', 'before', 'until', 'only', 'just'],
+    ...['actually', 'sorry', 'mr', 'mrs', 'ms', 'dr', 'shri', 'sri', 'smt', 'sir', 'madam', 'a'],
+    ...['an', 'my', 'our', 'your', 'his', 'their', 'none', 'ठीक', 'है', 'हैं', 'हाँ', 'हां', 'जी'],
+    ...['जरूर', 'ज़रूर', 'सर', 'मैडम', 'पहले', 'पूरे', 'पूरा', 'पूरी', 'सारे', 'सभी', 'सब', 'लोग'],
+    ...['बस', 'सिर्फ', 'केवल', 'दोपहर', 'सुबह', 'सवेरे', 'शाम', 'रात', 'कल', 'अच्छा', 'ओके'],
+    ...['बिल्कुल', 'बिलकुल', 'पक्का', 'अवश्य', 'जल्दी', 'तब', 'लिए', 'वाले', 'वाला', 'हो', 'होय'],
+    ...['बरं', 'बरोबर', 'आहे', 'आहेत', 'सकाळी', 'दुपारी', 'संध्याकाळी', 'दुपार', 'सकाळ', 'रात्री'],
+    ...['उद्या', 'नक्की', 'तर', 'पण', 'फक्त', 'एकूण', 'कुल', 'सगळे', 'सर्व', 'आधी', 'साहेब'],
+    ...['श्री', 'श्रीमती', 'जब', 'होने', 'होत', 'होईपर्यंत', 'जोपर्यंत', 'झाल्यावर', 'मिलने'],
+    ...['मिळाल्यावर'],
   ].map(normalizeText),
 );
 const ownerVerbs =
@@ -382,55 +447,121 @@ const englishOwnerSubject = new RegExp(
 );
 // Third-person future forms only: "मैं भेजूंगा" / "मी पाठवेन" name no other owner.
 const indicOwnerVerb =
-  /(?<![\p{L}\p{M}\p{N}])([\p{L}\p{M}]+)\s+(?:(?:पैक|पॅक|पॅकिंग|गोळा)\s+)?(?:भेजेगा|भेजेगी|भेजेंगे|रखेगा|रखेगी|रखेंगे|रोकेगा|रोकेगी|रोकेंगे|करेगा|करेगी|करेंगे|उठाएगा|उठाएगी|उठाएंगे|पाठवेल|पाठवतील|ठेवेल|ठेवतील|थांबवेल|थांबवतील|करेल|करतील|घेईल|घेतील)(?![\p{L}\p{M}])/u;
+  /^(?:भेजेगा|भेजेगी|भेजेंगे|भेजेंगी|रखेगा|रखेगी|रखेंगे|रखेंगी|रोकेगा|रोकेगी|रोकेंगे|रोकेंगी|करेगा|करेगी|करेंगे|करेंगी|उठाएगा|उठाएगी|उठाएंगे|उठाएंगी|पाठवेल|पाठवतील|ठेवेल|ठेवतील|थांबवेल|थांबवतील|करेल|करतील|घेईल|घेतील)$/u;
+/** Hindi -ेंगे/-ेंगी is also "we" or polite "you": only a name right before the object counts. */
+const indicPluralVerb = /(?:ेंगे|ेंगी|एंगे|एंगी)$/u;
+/** A word after the candidate that makes it a non-subject ("रवि के बजाय", "रवि का भाई", "रवि और"). */
+const ownerConnective = /^(?:के|की|का|को|चा|ची|चे|च्या|और|आणि|व|या|किंवा|ऐवजी|बजाय|जगह|नहीं|नही|नाही)$/u;
+const itemWordSets = new WeakMap<HandoverItem[], Set<string>>();
+/** An owner mention: one name, or a mention that cannot be read as one person (ambiguous). */
+interface HeardOwner {
+  owner?: string;
+  ambiguous: boolean;
+}
 
 /**
- * The owner a clause explicitly names. It depends only on the spoken words: owner phrasing
- * ("assigned to X", "X will send", "X भेजेगा", "X पाठवेल") decides whether an owner was said.
- * Names recorded anywhere on the board (never just the target's expected owner) only decide
- * how many words a multi-word name spans; items, units, numbers and pronouns are never names.
+ * The owner a clause explicitly names. It depends only on the spoken words, never on any
+ * owner in the plan: owner phrasing ("assigned to X", "X will send", "X भेजेगा", "X पाठवेल")
+ * decides whether an owner was said. Adjacent name words are one name only when each is
+ * capitalised; otherwise, and whenever two different owners or a qualified assignment are
+ * heard ("previously assigned to", "रवि के बजाय सुरेश"), the owner is ambiguous.
  */
-function statedOwner(text: string, items: HandoverItem[]): string | undefined {
+function statedOwner(text: string, items: HandoverItem[]): HeardOwner {
   const said = text.normalize('NFC').replace(/\s+/g, ' ').trim();
-  const boardNames = new Set(
-    items.flatMap((item) => (item.owner ? [normalizeText(item.owner)] : [])),
-  );
-  const isName = (word: string) => {
+  let itemWords = itemWordSets.get(items);
+  if (!itemWords) {
+    itemWords = new Set(
+      items.flatMap((item) =>
+        [item.id, item.label, ...item.aliases].flatMap((name) =>
+          normalizeText(name).split(/[^\p{L}\p{M}\p{N}]+/u),
+        ),
+      ),
+    );
+    itemWordSets.set(items, itemWords);
+  }
+  const isObjectWord = (word: string) => {
     const value = normalizeText(word);
     return (
-      !!value &&
-      !ownerStopwords.has(value) &&
-      !/\d/.test(normalizeNumbers(value)) &&
-      !['parcel', 'box', 'carton', 'piece'].includes(canonicalUnit(value)) &&
-      !actionFromText(value) &&
-      !items.some((item) =>
-        [item.id, item.label, ...item.aliases].some((name) => hasToken(normalizeText(name), value)),
-      )
+      /\d/.test(normalizeNumbers(value)) ||
+      isUnsupportedIndicNumber(value) ||
+      ['parcel', 'box', 'carton', 'piece'].includes(canonicalUnit(value)) ||
+      !!actionFromText(value) ||
+      itemWords.has(value)
     );
   };
-  const assigned =
-    /(?<![\p{L}\p{N}])(?:owner is|assigned to|handled by)\s+([\p{L}\p{M}]+)(?:\s+([\p{L}\p{M}]+))?/iu.exec(
-      said,
-    );
-  if (assigned) {
-    const pair = assigned[2] ? `${assigned[1]} ${assigned[2]}` : '';
-    if (pair && boardNames.has(normalizeText(pair))) return pair;
-    return isName(assigned[1]!) ? assigned[1] : undefined;
+  const nameCache = new Map<string, boolean>();
+  const isName = (word: string) => {
+    let known = nameCache.get(word);
+    if (known === undefined) {
+      const value = normalizeText(word);
+      known =
+        !!value &&
+        !ownerStopwords.has(value) &&
+        !addressWord.test(value) &&
+        !confirmWord.test(value) &&
+        !isObjectWord(word);
+      nameCache.set(word, known);
+    }
+    return known;
+  };
+  const nameRun = (words: string[]): HeardOwner =>
+    words.length === 1 || (words.length > 1 && words.every((word) => /^\p{Lu}/u.test(word)))
+      ? { owner: words.join(' '), ambiguous: false }
+      : { ambiguous: words.length > 1 };
+  const mentions: HeardOwner[] = [];
+
+  let assignedSaid = false;
+  for (const assigned of said.matchAll(
+    /(?<![\p{L}\p{N}])(?:(previously|formerly|originally|earlier|initially|no longer|not|never|was|were)\s+)?(?:owner is|assigned to|handled by)\s+([\p{L}\p{M}]+(?: [\p{L}\p{M}]+){0,2})((?: ?[,&] ?| )(?:and|or|और|या|आणि|किंवा)?)?/giu,
+  )) {
+    assignedSaid = true;
+    const words = assigned[2]!.split(' ');
+    const run: string[] = [];
+    for (const word of words) {
+      if (!isName(word)) break;
+      run.push(word);
+    }
+    // "assigned to Ravi and Suresh", "owner is Ravi or Suresh": not one owner.
+    const joined = [...words.slice(run.length), assigned[3] ?? ''].join(' ');
+    const more = /[,&]|(?<![\p{L}\p{M}])(?:and|or|और|या|आणि|किंवा)(?![\p{L}\p{M}])/iu.test(joined);
+    if (assigned[1] || more) mentions.push({ ambiguous: true });
+    else if (run.length) mentions.push(nameRun(run));
   }
+
+  let pronounSubject = false;
   for (const match of said.matchAll(englishOwnerSubject)) {
     const words = match[1]!.split(' ');
-    for (const length of [3, 2]) {
-      const name = words.slice(-length).join(' ');
-      if (words.length >= length && boardNames.has(normalizeText(name))) return name;
-    }
-    if (isName(words.at(-1)!)) return words.at(-1);
+    const run: string[] = [];
+    for (let at = words.length - 1; at >= 0 && isName(words[at]!); at--) run.unshift(words[at]!);
+    if (run.length) mentions.push(nameRun(run));
+    else pronounSubject = true;
   }
-  const indic = indicOwnerVerb.exec(said);
-  if (indic) {
-    const first = /^[\s,.!?;।]*([\p{L}\p{M}]+)/u.exec(said)?.[1];
-    return [indic[1]!, first].find((word): word is string => !!word && isName(word));
-  }
-  return undefined;
+
+  // Hindi/Marathi: the name directly before the object phrase and verb group, and no other.
+  const tokens = said.match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+  const verbAt = tokens.findIndex((token) => indicOwnerVerb.test(token));
+  let at = verbAt - 1;
+  while (at >= 0 && !isName(tokens[at]!)) at--;
+  if (
+    at >= 0 &&
+    (!indicPluralVerb.test(tokens[verbAt]!) || tokens.slice(at + 1, verbAt).every(isObjectWord))
+  )
+    mentions.push(
+      ownerConnective.test(tokens[at + 1]!) || tokens.slice(0, at).some(isName)
+        ? { ambiguous: true }
+        : { owner: tokens[at], ambiguous: false },
+    );
+
+  const heard = new Set(
+    mentions.flatMap((mention) => (mention.owner ? [normalizeText(mention.owner)] : [])),
+  );
+  if (
+    mentions.some((mention) => mention.ambiguous) ||
+    heard.size > 1 ||
+    (assignedSaid && pronounSubject)
+  )
+    return { ambiguous: true };
+  return { owner: mentions.find((mention) => mention.owner)?.owner, ambiguous: false };
 }
 
 // Hindi/Marathi number words above the small supported set. They are recognised
@@ -445,14 +576,53 @@ const foldIndic = (word: string) =>
     .replace(/\u0901/gu, '\u0902')
     .replace(/\u0931/gu, '\u0930')
     .replace(/ट्ठ/gu, 'ठ्ठ');
+/**
+ * A looser phonetic fold used only to *report* misspelt number words (चालिस, पचीस, अठाइस,
+ * अठ्ठ्यान्नव): vowel length, geminates, ण/न and ळ/ल are ignored. It never reads a value.
+ */
+const looseIndic = (word: string) =>
+  foldIndic(word)
+    .replace(/ठ्ठ/gu, 'ठ')
+    .replace(/([क-ह])्\1/gu, '$1')
+    .replace(/ी/gu, 'ि')
+    .replace(/ू/gu, 'ु')
+    .replace(/ई/gu, 'इ')
+    .replace(/ऊ/gu, 'उ')
+    .replace(/ण/gu, 'न')
+    .replace(/ळ/gu, 'ल');
 const indicNumberSet = new Set(indicNumberWords.split(/\s+/u).map(foldIndic));
+const looseIndicNumberSet = new Set([...indicNumberSet].map(looseIndic));
+/** Multiplier and fraction words that, glued to a number word, make a compound (आठसौ, साडेआठ). */
+const numberPieceWords =
+  'सौ शे शंभर हजार लाख करोड कोटी साडे साढे सवा पौने पावणे डेढ दीड अडीच ढाई अढाई hundred thousand';
+const numberPieces = [
+  ...new Set(
+    [...Object.keys(numberWords), ...indicNumberSet, ...numberPieceWords.split(' ')].map(foldIndic),
+  ),
+];
+/** True when a token is two or more number/multiplier/fraction words written as one. */
+const isGluedNumber = (folded: string) => {
+  // दोबारा ("again") only looks like दो + बारा.
+  if (folded.length > 40 || folded === 'दोबारा') return false;
+  // reach[i]: the first i characters split into this many known pieces (0 = unreachable).
+  const reach = new Array<number>(folded.length + 1).fill(0);
+  reach[0] = 1;
+  for (let i = 0; i < folded.length; i++)
+    if (reach[i])
+      for (const piece of numberPieces)
+        if (folded.startsWith(piece, i))
+          reach[i + piece.length] = Math.max(reach[i + piece.length]!, reach[i]! + 1);
+  return reach[folded.length]! > 2;
+};
 const isUnsupportedIndicNumber = (token: string) => {
   if (numberWords[token]) return false;
   const folded = foldIndic(token);
   return (
     indicNumberSet.has(folded) ||
+    looseIndicNumberSet.has(looseIndic(folded)) ||
+    isGluedNumber(folded) ||
     /^एकोण/u.test(folded) ||
-    /(?:वीस|बीस|तीस|चाळीस|तालीस|हत्तर|ऐंशी|ण्णव|सष्ट)$/u.test(folded)
+    /(?:वीस|बीस|तीस|चाळीस|तालीस|हत्तर|ऐंशी|ण्णव|सष्ट|शे)$/u.test(folded)
   );
 };
 
@@ -484,7 +654,12 @@ export function readQuantity(text: string): QuantityReading {
     );
   const folded = foldIndic(value);
   if (
-    /\b(?:hundred|thousand|million|billion|lakh|lac|crore|dozens?|half|quarter|twice|thrice)\b|(?<![\p{L}\p{M}])(?:double|triple|डबल)\s*\d|\d\s*(?:times|x)\b|(?<![\p{L}\p{M}])(?:सौ|हजार|लाख|करोड|दर्जन|शंभर|कोटी|डझन|आधा|अर्धा|दीड|सव्वा|सवा|पाव|पौने|पावणे|साढे|साडे|डेढ|ढाई|अढाई|अडीच|दुगना|दुगुना|दुगने|दुगुने|तिगुना|दुप्पट|तिप्पट)(?![\p{L}\p{M}])/iu.test(
+    /\b(?:hundred|thousand|million|billion|lakh|lac|crore|dozens?|half|quarter|twice|thrice|scores?|gross)\b|(?<![\p{L}\p{M}])(?:double|triple|डबल)\s*\d|\d\s*(?:times|x)\b|(?<![\p{L}\p{M}])(?:सौ|हजार|हजारों|हजारो|लाख|करोड|दर्जन|शंभर|कोटी|डझन|आधा|अर्धा|दीड|सव्वा|सवा|पाव|पौने|पावणे|साढे|साडे|डेढ|ढाई|अढाई|अडीच|दुगना|दुगुना|दुगने|दुगुने|तिगुना|दुप्पट|तिप्पट|शे|सैकडा|सैकडे|सैकडों|सैकडो|शेकडा|शेकडो|गुना|गुने|गुनी|गुणा|गुणे|गुणी|कोडी|कोडियां|कोड्या)(?![\p{L}\p{M}])/iu.test(
+      folded,
+    ) ||
+    // A collective or multiplier straight after a count ("eight pairs of", "eight k",
+    // "आठ जोड़ी", "आठ पट"): the spoken number is not the item count.
+    /\d\s*(?:pairs?|sets?|lots?|batch(?:es)?|bundles?|packs?|groups?|couples?|k|grand|fold)(?![\p{L}\p{M}\p{N}])|\d\s*(?:जोडी|जोडे|जोड्या|जोडया|जोड़ी|पट|बार|वेळा|दफा)(?![\p{L}\p{M}])/iu.test(
       folded,
     )
   )
@@ -497,8 +672,15 @@ export function readQuantity(text: string): QuantityReading {
     // word or number by a hyphen ("30-eighth", "8-30"), a written digit group
     // ("1,008"), an unknown tens/teens word next to a number ("fourty 8"), an
     // ordinal after a number ("30 eighth"), or a Hindi/Marathi compound number.
-    (value.match(/[\p{L}\p{M}\p{N}]+(?:[-\u2010\u2011][\p{L}\p{M}\p{N}]+)+/gu) ?? []).some(
-      (token) => /\d/.test(token),
+    // The left anchor keeps this linear: without it every inner start rescans the word.
+    (
+      value.match(
+        /(?<![\p{L}\p{M}\p{N}])[\p{L}\p{M}\p{N}]+(?:[-\u2010\u2011][\p{L}\p{M}\p{N}]+)+/gu,
+      ) ?? []
+    ).some((token) => /\d/.test(token)) ||
+    // A count glued to letters ("8k", "8x", "8th"), except a clock suffix ("3pm").
+    /(?<![\p{L}\p{M}\p{N}])\d+(?!(?:am|pm|a\.m|p\.m)(?![\p{L}\p{M}\p{N}]))[\p{L}\p{M}]/u.test(
+      value,
     ) ||
     /\d,\d/.test(value) ||
     /\b[a-z]+(?:ty|teen)\s+\d/u.test(value) ||
@@ -652,7 +834,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     const validHoldSequence =
       action === 'hold' &&
       gateMarker.test(normal) &&
-      /\b(?:until|unless)\b[^,;]+(?:,\s*)?(?:and\s+)?then\s+(?:send|dispatch|release|ship)\b(?:\s+(?:it|them|the parcels?|the packages?))?\s*$/iu.test(
+      /\b(?:until|unless)\b(?:(?!\b(?:until|unless)\b)[^,;])+(?:,\s*)?(?:and\s+)?then\s+(?:send|dispatch|release|ship)\b(?:\s+(?:it|them|the parcels?|the packages?))?\s*$/iu.test(
         normal,
       );
     const residualCommitment =
@@ -691,7 +873,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'This may describe completed work. Say what you intend to do next.',
       );
     if (
-      /\b(?:should|could|can|shall|do|may)\s+(?:i|we)\b|क्या.*(?:भेज|रख|पैक)|(?:पाठवू|ठेवू)\s*का/iu.test(
+      /\b(?:should|could|can|shall|do|may)\s+(?:i|we)\b|^(?:(?!क्या).)*क्या.*(?:भेज|रख|पैक)|(?:पाठवू|ठेवू)\s*का/iu.test(
         normal,
       )
     )
@@ -764,10 +946,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     ]);
     for (const name of names.sort((a, b) => b.length - a.length))
       for (const form of new Set([normalizeText(name), normalizeNumbers(name)]))
-        quantityText = quantityText.replace(
-          new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])${escape(form)}(?![\\p{L}\\p{M}\\p{N}])`, 'gu'),
-          ' ',
-        );
+        quantityText = quantityText.replace(boundedWord(form), ' ');
     const reading = readQuantity(quantityText);
     for (const { code, message } of reading.issues) uncertain('quantity', code, message);
     const quantity = reading.quantity;
@@ -809,7 +988,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       condition = 'address confirmed';
     if (
       clock.time &&
-      /\b(?:after|past|not before)\s+\d[^,;]*?\s(?:and|plus|as well as)\s+(?!then\s)|(?:बाद|नंतर)\s+(?:और|तथा|आणि|व)\s/iu.test(
+      /\b(?:after|past|not before)\s+\d(?:(?!\b(?:after|past|not before)\s+\d)[^,;])*?\s(?:and|plus|as well as)\s+(?!then\s)|(?:बाद|नंतर)\s+(?:और|तथा|आणि|व)\s/iu.test(
         numeric,
       )
     )
@@ -865,7 +1044,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
           'It is unclear whether this condition starts or ends the hold. Say "hold until" the release prerequisite.',
         );
       if (
-        /\b(?:until|unless|once|after|if|provided|providing|as soon as|when)\b.*\b(?:not|never|without|unconfirmed)\b/iu.test(
+        /^(?:(?!\b(?:until|unless|once|after|if|provided|providing|as soon as|when)\b).)*\b(?:until|unless|once|after|if|provided|providing|as soon as|when)\b.*\b(?:not|never|without|unconfirmed)\b/iu.test(
           normal,
         )
       )
@@ -890,7 +1069,14 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       );
     }
 
-    const owner = statedOwner(span.text, input.items);
+    const heardOwner = statedOwner(span.text, input.items);
+    if (heardOwner.ambiguous)
+      uncertain(
+        'owner',
+        'AMBIGUOUS_OWNER',
+        'More than one person, or an unclear name, is mentioned for this work. Say who owns it.',
+      );
+    const owner = heardOwner.owner;
 
     claims.push({
       id: `${utteranceId}-claim-${claims.length + 1}`,
