@@ -20,16 +20,19 @@ import {
   X,
 } from 'lucide-react';
 import {
+  acknowledgeSourceReview,
   compareHandover,
   confirmItem,
   createDemoHandover,
   createHandover,
   DEMO_TRANSCRIPTS,
+  pendingSourceReviewItemIds,
   recordReadback,
   releaseItem,
   reviseItem,
   restoreHandover,
   setParticipantLanguage,
+  stampInterpretation,
   submitReadback,
   type CreateHandoverInput,
   type HandoverItem,
@@ -447,7 +450,10 @@ export default function App() {
       }
       return {
         ...next,
-        utterances: [...next.utterances, { ...parsed, createdAt: new Date().toISOString() }],
+        utterances: [
+          ...next.utterances,
+          { ...stampInterpretation(parsed), createdAt: new Date().toISOString() },
+        ],
       };
     });
     if (success) {
@@ -781,6 +787,32 @@ export default function App() {
                   .map((id) => active.items.find((item) => item.id === id)?.label ?? id)
                   .join(' · ')}
               </p>
+            </div>
+          </div>
+        )}
+        {pendingSourceReviewItemIds(active).length > 0 && (
+          <div className="storage-warning" role="status" data-testid="source-review-notice">
+            <Info size={19} />
+            <div>
+              <strong>Review instruction wording</strong>
+              <p>
+                After an interpretation update, the saved instruction words for these items read
+                differently from the plan. The plan was not changed. The outgoing worker should
+                check it and edit any item that is wrong.
+              </p>
+              <p>
+                {pendingSourceReviewItemIds(active)
+                  .map((id) => active.items.find((item) => item.id === id)?.label ?? id)
+                  .join(' · ')}
+              </p>
+              <button
+                type="button"
+                className="text-button"
+                data-testid="acknowledge-source-review"
+                onClick={() => commit(active.id, (state) => acknowledgeSourceReview(state))}
+              >
+                Plan reviewed
+              </button>
             </div>
           </div>
         )}

@@ -83,7 +83,11 @@ const parsedShape = {
   limitations: z.array(z.string().max(1_000)).max(20),
 };
 export const parsedTranscriptSchema: z.ZodType<ParsedTranscript> = z.object(parsedShape);
-const utteranceSchema = z.object({ ...parsedShape, createdAt: timestamp });
+const utteranceSchema = z.object({
+  ...parsedShape,
+  createdAt: timestamp,
+  rulesVersion: z.number().int().min(0).max(1_000_000).optional(),
+});
 
 export const handoverStateSchema: z.ZodType<HandoverState> = z
   .object({
@@ -121,10 +125,22 @@ export const handoverStateSchema: z.ZodType<HandoverState> = z
     ),
     recheckNotice: z
       .object({
-        reason: z.literal('legacy-interpretation'),
+        reason: z.enum(['legacy-interpretation', 'interpretation-rules-changed']),
         itemIds: z.array(identifier).min(1).max(100),
         createdAt: timestamp,
       })
+      .optional(),
+    sourceReview: z
+      .array(
+        z.object({
+          itemId: identifier,
+          itemRevision: revision,
+          utteranceId: identifier,
+          reviewed: z.boolean(),
+          createdAt: timestamp,
+        }),
+      )
+      .max(500)
       .optional(),
     events: z
       .array(
