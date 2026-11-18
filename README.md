@@ -44,6 +44,9 @@ The production server defaults to `http://127.0.0.1:3000`. It reads `.env.local`
 - Browser persistence, activity history, structured JSON export/import, and print output.
 - Whole-workspace backup and validated preview before replacement, including restoration of multiple handovers and participant languages. Audio stays on the original device.
 - Deliberate recovery when saved browser data is corrupt or storage is unavailable.
+- Protection against stale browser tabs: saves are compare-and-set, an outdated tab is paused with a reload action, and restoring a backup over newer work needs a second confirmation.
+- Revalidation of saved approvals when the interpretation rules change: only items whose reading changed reopen. Imported model read-backs are always rechecked.
+- Short clarification answers ("8", "after 3 PM") complete only the detail that was asked, from the worker's own earlier statement; a bare "yes" never confirms.
 - Optional authenticated model extraction through a compatible chat/completions API. The model cannot approve or directly change the plan.
 
 ## Try the central demonstration
@@ -73,7 +76,7 @@ Capture waits for recording and recognition finalization before enabling submiss
 
 Playback uses browser text-to-speech and selects a voice in the chosen language. If no matching voice exists, the app explains the limitation and keeps the text available. It does not substitute English for Hindi or Marathi. Custom item names and free-text prerequisites are retained rather than represented as automatically translated. Navigation and settings are still predominantly English.
 
-The local parser is deliberately bounded. It is not a general language model, certified comprehension check, or measured speech-recognition benchmark. A “Matches” result means the extracted stated actions match the current structured plan; it does not prove that the person understood everything or performed the work.
+The local parser is deliberately bounded. Any word it cannot account for makes that statement uncertain rather than silently ignored, so it flags many correct read-backs for clarification. It is not a general language model, certified comprehension check, or measured speech-recognition benchmark. A “Matches” result means the extracted stated actions match the current structured plan; it does not prove that the person understood everything or performed the work.
 
 ### Optional model extraction
 
@@ -113,6 +116,14 @@ npm run test:production
 npx playwright install chromium
 npm run test:e2e
 ```
+
+The held-out adversarial evaluation (`eval/heldout/`) is reported separately and never fails the build:
+
+```bash
+npm run eval
+```
+
+Set `E2E_PORT` to run browser tests on another port, for example when several checkouts test in parallel.
 
 An existing Chromium can be selected with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`. CI installs its own browser and runs the complete checks. Browser tests include real UI state transitions; microphone denial and delayed model responses are explicitly mocked. They do not establish real device transcription accuracy or live provider performance.
 
