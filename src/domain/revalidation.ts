@@ -227,6 +227,8 @@ export function revalidateInterpretations(
     state.items.some((item) => item.id === review.itemId && item.revision === review.itemRevision),
   );
   const newReviews: SourceReview[] = [];
+  // Items whose plan contradicts the very claim its source excerpt records.
+  const planMismatch = new Set<string>();
   for (const item of state.items) {
     const sources = new Set(item.evidence.map((evidence) => evidence.utteranceId));
     const earlier = previous?.items.find((candidate) => candidate.id === item.id);
@@ -248,6 +250,8 @@ export function revalidateInterpretations(
       const utterance = source(utteranceId);
       if (!utterance || utterance.role !== 'outgoing') continue;
       const fresh = reparse(utterance);
+      const contradicts = quoteContradictsPlan(utterance, item);
+      if (contradicts) planMismatch.add(item.id);
       const differs = !fresh
         ? true
         : utterance.parser === 'local-rules'
@@ -255,7 +259,7 @@ export function revalidateInterpretations(
             interpretationSignature(...forItem(fresh, item.id))
           : (utterance.rulesVersion ?? 0) > INTERPRETATION_RULES_VERSION ||
             modelReadingSuspect(utterance, item.id, fresh);
-      if (differs)
+      if (differs || contradicts)
         newReviews.push({
           itemId: item.id,
           itemRevision: item.revision,
@@ -278,8 +282,10 @@ export function revalidateInterpretations(
   const sourceReview = boundedSourceReview(existingReviews, newReviews);
   if (sourceReview.length) next.sourceReview = sourceReview;
   else delete next.sourceReview;
-  const flagged = [...new Set(newReviews.map((review) => review.itemId))];
-  const affected = [...new Set([...reopened.keys(), ...flagged])];
+  const flaggedIds = [...new Set(newReviews.map((review) => review.itemId))];
+  const flagged = flaggedIds.filter((id) => !planMismatch.has(id));
+  const mismatched = flaggedIds.filter((id) => planMismatch.has(id));
+  const affected = [...new Set([...reopened.keys(), ...flaggedIds])];
   if (affected.length === 0) return next;
 
   for (const id of affected) {
@@ -322,7 +328,64 @@ export function revalidateInterpretations(
         MAX_EVENT_MESSAGE,
       ),
     });
+  if (mismatched.length)
+    append({
+      type: 'interpretation-upgraded',
+      itemIds: mismatched,
+      message: clip(
+        `System check: the saved plan for ${describeItems(
+          mismatched,
+          label,
+        )} does not match the instruction words it quotes. The plan was not changed; the outgoing participant should review it, and a fresh read-back is required.`,
+        MAX_EVENT_MESSAGE,
+      ),
+    });
   return next;
+}
+
+/**
+ * True when a claim recorded for one of the item's quoted excerpts states a
+ * value that differs from the item's plan. Every field the quote states is
+ * compared, whether or not the item lists it in `evidenceFields`, so a plan
+ * edited outside the app cannot keep showing a quote that says otherwise.
+ * Fields the quote leaves out or marks uncertain are not compared (a spoken
+ * change keeps unmentioned fields), nor is a group total against one member.
+ */
+function quoteContradictsPlan(utterance: Utterance, item: HandoverItem): boolean {
+  const quoted = utterance.claims.filter(
+    (claim) =>
+      claim.itemIds.includes(item.id) &&
+      item.evidence.some(
+        (evidence) =>
+          evidence.utteranceId === utterance.utteranceId &&
+          evidence.start === claim.evidence.start &&
+          evidence.end === claim.evidence.end &&
+          evidence.text === claim.evidence.text,
+      ),
+  );
+  return quoted.some((claim) => {
+    const stated = (field: ParsedClaim['uncertainFields'][number]) =>
+      !claim.uncertainFields.includes(field);
+    return (
+      (claim.action !== undefined && stated('action') && claim.action !== item.action) ||
+      (claim.quantity !== undefined &&
+        claim.itemIds.length === 1 &&
+        stated('quantity') &&
+        claim.quantity !== item.quantity) ||
+      (claim.unit !== undefined &&
+        stated('unit') &&
+        canonicalUnit(claim.unit) !== canonicalUnit(item.unit)) ||
+      (claim.notBefore !== undefined &&
+        stated('notBefore') &&
+        (claim.notBefore ?? null) !== item.notBefore) ||
+      (claim.condition !== undefined &&
+        stated('condition') &&
+        canonicalCondition(claim.condition ?? '') !== canonicalCondition(item.condition ?? '')) ||
+      (claim.owner !== undefined &&
+        stated('owner') &&
+        normalizeText(claim.owner ?? '') !== normalizeText(item.owner ?? ''))
+    );
+  });
 }
 
 /** Schema limits that revalidation output must stay within (see `schema.ts`). */

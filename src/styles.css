@@ -2924,4 +2924,13 @@ strong {
     background: #fff;
     box-shadow: 0 -1px 0 var(--border);
   }
+  /* With little room above an on-screen keyboard, pinned actions would cover the
+     field being typed in; they follow the field instead, Check right below it. */
+  :root[data-short-viewport] .guided-workspace .composer:focus-within .composer-actions {
+    position: static;
+    box-shadow: none;
+  }
+  :root[data-short-viewport] .guided-workspace .composer textarea {
+    scroll-margin-bottom: calc(8px + var(--keyboard-inset, 0px));
+  }
 }

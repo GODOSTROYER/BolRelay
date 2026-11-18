@@ -1211,10 +1211,25 @@ export function isRestoredHandover(state: HandoverState): boolean {
   return restoredStates.has(state);
 }
 
+/** Shown when a change would exceed the supported history size. */
+export const HISTORY_LIMIT_MESSAGE =
+  'This handover has reached its history limit (5,000 events or 2,000 recordings), so this change was not saved. The full history is kept: export this handover and start a new one to continue.';
+
 function validateAndRevalidate(value: unknown, options: RestoreOptions): HandoverState {
   const result = handoverStateSchema.safeParse(value);
-  if (!result.success)
+  if (!result.success) {
+    // A full history must not be trimmed and must not be reported as a broken file.
+    if (
+      result.error.issues.some(
+        (issue) =>
+          issue.code === 'too_big' &&
+          issue.path.length === 1 &&
+          (issue.path[0] === 'events' || issue.path[0] === 'utterances'),
+      )
+    )
+      throw new DomainError('HISTORY_LIMIT', HISTORY_LIMIT_MESSAGE);
     throw new DomainError('INVALID_BACKUP', 'This file is not a supported BolRelay handover.');
+  }
   const state = result.data;
   const ids = new Set(state.items.map((item) => item.id));
   if (ids.size !== state.items.length)
@@ -1383,7 +1398,11 @@ function validateAndRevalidate(value: unknown, options: RestoreOptions): Handove
     .map(([id]) => id);
   if (options.revalidate === false) return state;
   // Saved approvals are then rechecked against the current interpretation rules.
-  if (legacyItemIds.length === 0) return revalidateInterpretations(clone(state), options);
+  if (legacyItemIds.length === 0) {
+    const unchanged = clone(state);
+    const revalidated = revalidateInterpretations(unchanged, options);
+    return revalidated === unchanged ? revalidated : canonical(revalidated);
+  }
 
   const migrated = clone(state);
   for (const id of legacyItemIds) {
@@ -1399,18 +1418,32 @@ function validateAndRevalidate(value: unknown, options: RestoreOptions): Handove
   };
   // A full history is retained even at the supported event limit. The separate
   // persisted system notice remains visible without adding an invalid 5001st event.
-  return revalidateInterpretations(
-    migrated.events.length < 5_000
-      ? appendEvent(migrated, {
-          type: 'interpretation-upgraded',
-          itemIds: legacyItemIds,
-          message:
-            'System update: earlier read-backs need a fresh check after interpretation rules changed. Original statements and history were retained; no participant acknowledgement was added.',
-          createdAt: at,
-        })
-      : migrated,
-    options,
+  return canonical(
+    revalidateInterpretations(
+      migrated.events.length < 5_000
+        ? appendEvent(migrated, {
+            type: 'interpretation-upgraded',
+            itemIds: legacyItemIds,
+            message:
+              'System update: earlier read-backs need a fresh check after interpretation rules changed. Original statements and history were retained; no participant acknowledgement was added.',
+            createdAt: at,
+          })
+        : migrated,
+      options,
+    ),
   );
+}
+
+/**
+ * Re-parses a state that revalidation changed, so added keys (a recheck notice,
+ * source review markers, events) are in schema order. A later load of the saved
+ * text then serializes identically and is not mistaken for new work.
+ */
+function canonical(state: HandoverState): HandoverState {
+  const result = handoverStateSchema.safeParse(state);
+  if (!result.success)
+    throw new DomainError('INVALID_BACKUP', 'This file is not a supported BolRelay handover.');
+  return result.data;
 }
 
 export function getHandoverSummary(state: HandoverState) {

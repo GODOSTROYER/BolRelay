@@ -170,10 +170,26 @@ export const handoverStateSchema: z.ZodType<HandoverState> = z
     createdAt: timestamp,
     updatedAt: timestamp,
   })
-  .transform((state) => ({
-    ...state,
-    participantLanguages: state.participantLanguages ?? {
-      outgoing: state.language,
-      incoming: state.language,
-    },
-  }));
+  // Keeps the schema's key order, so a parse of already parsed data serializes
+  // identically (saved data is compared as text to decide whether it changed).
+  .transform(
+    ({
+      schemaVersion,
+      id,
+      title,
+      outgoingName,
+      incomingName,
+      language,
+      participantLanguages,
+      ...rest
+    }) => ({
+      schemaVersion,
+      id,
+      title,
+      outgoingName,
+      incomingName,
+      language,
+      participantLanguages: participantLanguages ?? { outgoing: language, incoming: language },
+      ...rest,
+    }),
+  );

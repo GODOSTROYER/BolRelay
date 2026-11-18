@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   AudioLines,
@@ -63,9 +63,9 @@ import { ActionBoard, describeItem } from './components/ActionBoard';
 import { ActivityFeed } from './components/ActivityFeed';
 import { ComparisonPanel } from './components/ComparisonPanel';
 import { ItemEditor, NewHandover } from './components/ItemEditor';
-import { Modal } from './components/Modal';
+import { Modal, publishDialogNotice } from './components/Modal';
 import { VoiceComposer } from './components/VoiceComposer';
-import { SpokenHandover } from './components/SpokenHandover';
+import { SpokenHandover, type SpokenHandoverDraft } from './components/SpokenHandover';
 import { RecipientGuide } from './components/RecipientGuide';
 import { currentQuestion, ui } from './lib/language';
 import type { CapturedAudio } from './hooks/useVoiceCapture';
@@ -84,6 +84,9 @@ type Dialog =
   | null;
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : 'Something went wrong. Your handover is unchanged.';
+/** Shown inside an open dialog, whose backdrop covers the page's own notice. */
+const STALE_DIALOG_MESSAGE =
+  'Another tab saved newer work, so nothing in this dialog is saved yet. Choose “Reload latest”: what you entered here stays in this dialog, then try again.';
 
 function exampleHandover() {
   const example = createDemoHandover();
@@ -107,6 +110,10 @@ export default function App() {
   const [staleWorkspace, setStaleWorkspace] = useState(false);
   const staleRef = useRef(false);
   staleRef.current = staleWorkspace;
+  // True until this tab first saves after loading. Newer saved data found by
+  // then is adopted quietly: nothing was done here yet, and two tabs opened
+  // together that both recheck the same saved work must not pause each other.
+  const pristineRef = useRef(!initial.warning);
   const [role, setRole] = useState<ParticipantRole>('incoming');
   const [language, setLanguage] = useState<Language>('en-IN');
   const [incomingText, setIncomingText] = useState('');
@@ -117,6 +124,14 @@ export default function App() {
   const [captureRevision, setCaptureRevision] = useState(0);
   const [view, setView] = useState<'handover' | 'activity'>('handover');
   const [dialog, setDialog] = useState<Dialog>(null);
+  // Why the last action in the open dialog failed (the page banner is covered).
+  const [dialogError, setDialogError] = useState('');
+  const [dialogAttempt, setDialogAttempt] = useState(0);
+  // The spoken new-handover dialog's typed text, kept while it is closed.
+  const spokenDraftRef = useRef<SpokenHandoverDraft | undefined>(undefined);
+  const keepSpokenDraft = useCallback((draft: SpokenHandoverDraft) => {
+    spokenDraftRef.current = draft;
+  }, []);
   const [mobileNav, setMobileNav] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
@@ -155,6 +170,15 @@ export default function App() {
     comparisons.length > 0 &&
     comparisons.every((result) => result.status === 'agreement' && !result.stale);
   const closeDialog = useCallback(() => setDialog(null), []);
+  const [replaceNewer, setReplaceNewer] = useState(false);
+  const restoreOverNewer =
+    dialog?.kind === 'restore-workspace' && (staleWorkspace || hasNewerSavedWorkspace());
+  /** Reports a failed action on the page and in the open dialog. */
+  const fail = (message: string) => {
+    setError(message);
+    setDialogError(message);
+    setDialogAttempt((value) => value + 1);
+  };
 
   useEffect(() => {
     void getCapabilities().then(setCapabilities);
@@ -163,16 +187,40 @@ export default function App() {
     if (savingBlocked || staleWorkspace) return;
     const result = writeWorkspace(handovers, activeId);
     if (result.conflict) {
+      if (pristineRef.current) {
+        reloadLatestRef.current(true);
+        return;
+      }
       staleRef.current = true;
       setStaleWorkspace(true);
       return;
     }
+    if (result.ok) pristineRef.current = false;
+    // Saved data became unreadable while open: offer the explicit reset.
+    if (result.unreadable) setSavingBlocked(true);
     setStorageWarning(result.ok ? null : (result.error ?? 'This handover could not be saved.'));
   }, [handovers, activeId, savingBlocked, staleWorkspace]);
+  useEffect(() => {
+    setDialogError('');
+  }, [dialog]);
+  useLayoutEffect(() => {
+    // Open dialogs show these themselves; the page's own notices are behind the backdrop.
+    publishDialogNotice({
+      ...(staleWorkspace
+        ? { stale: { message: STALE_DIALOG_MESSAGE, onReload: () => reloadLatestRef.current() } }
+        : {}),
+      ...(dialogError ? { error: dialogError } : {}),
+      attempt: dialogAttempt,
+    });
+  }, [staleWorkspace, dialogError, dialogAttempt]);
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== null && event.key !== STORAGE_KEY) return;
       if (hasNewerSavedWorkspace()) {
+        if (pristineRef.current) {
+          reloadLatestRef.current(true);
+          return;
+        }
         staleRef.current = true;
         setStaleWorkspace(true);
       }
@@ -202,17 +250,26 @@ export default function App() {
     setPendingAudio(null);
     setError('');
     setRole('incoming');
-    setDialog(null);
+    // A reload that had to switch handovers keeps a dialog that is not tied to one.
+    setDialog((open) =>
+      keepDrafts &&
+      (open?.kind === 'new' || open?.kind === 'new-manual' || open?.kind === 'restore-workspace')
+        ? open
+        : null,
+    );
   }, [activeId]);
   useEffect(() => {
     // Expose the on-screen keyboard height so sticky actions can stay above it.
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const update = () =>
+    const update = () => {
       document.documentElement.style.setProperty(
         '--keyboard-inset',
         `${Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))}px`,
       );
+      // Too little room above a keyboard for the field and pinned actions together.
+      document.documentElement.toggleAttribute('data-short-viewport', viewport.height < 260);
+    };
     update();
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
@@ -289,11 +346,16 @@ export default function App() {
     if (!staleRef.current && !hasNewerSavedWorkspace()) return false;
     staleRef.current = true;
     setStaleWorkspace(true);
+    setDialogAttempt((value) => value + 1);
     return true;
   };
 
-  /** Adopts the latest saved workspace while keeping typed, unsaved transcript text. */
-  const reloadLatestWorkspace = () => {
+  /**
+   * Adopts the latest saved workspace while keeping typed, unsaved transcript
+   * text and the open dialog with what was entered in it. `quiet` adopts newer
+   * data found before this tab saved anything, without a notification.
+   */
+  const reloadLatestWorkspace = (quiet = false) => {
     const latest = readWorkspace();
     if (latest.warning) {
       setStorageWarning(latest.warning);
@@ -313,10 +375,12 @@ export default function App() {
     if (nextActive.id !== activeIdRef.current) keepDraftsRef.current = true;
     setActiveId(nextActive.id);
     if (scope && !nextActive.items.some((item) => item.id === scope)) setScope(null);
-    setDialog(null);
     setError('');
+    setDialogError('');
+    setReplaceNewer(false);
     staleRef.current = false;
     setStaleWorkspace(false);
+    if (quiet) return;
     setToast(
       kept
         ? 'Loaded the latest saved handovers. Text you typed here was kept.'
@@ -324,11 +388,14 @@ export default function App() {
     );
   };
 
+  const reloadLatestRef = useRef(reloadLatestWorkspace);
+  reloadLatestRef.current = reloadLatestWorkspace;
+
   const commit = (id: string, transform: (state: HandoverState) => HandoverState): boolean => {
     if (blockIfStale()) return false;
     const current = workspaceRef.current.find((handover) => handover.id === id);
     if (!current) {
-      setError('This handover no longer exists.');
+      fail('This handover no longer exists.');
       return false;
     }
     try {
@@ -343,7 +410,7 @@ export default function App() {
       setError('');
       return true;
     } catch (cause) {
-      setError(messageOf(cause));
+      fail(messageOf(cause));
       return false;
     }
   };
@@ -352,7 +419,7 @@ export default function App() {
   const addHandover = (state: HandoverState): boolean => {
     if (blockIfStale()) return false;
     if (handovers.length >= 40) {
-      setError(
+      fail(
         'This workspace has 40 handovers. Export and delete an older handover before adding another.',
       );
       return false;
@@ -831,7 +898,7 @@ export default function App() {
                 type="button"
                 className="text-button"
                 data-testid="reload-workspace"
-                onClick={reloadLatestWorkspace}
+                onClick={() => reloadLatestWorkspace()}
               >
                 Reload latest
               </button>
@@ -1078,6 +1145,7 @@ export default function App() {
               throw new Error(
                 'This backup has no handovers. The current workspace has not changed.',
               );
+            setReplaceNewer(false);
             setDialog({
               kind: 'restore-workspace',
               raw: await file.text(),
@@ -1092,17 +1160,31 @@ export default function App() {
       {dialog?.kind === 'new' && (
         <SpokenHandover
           initialLanguage={active.participantLanguages.outgoing}
-          onClose={closeDialog}
+          initialDraft={spokenDraftRef.current}
+          onDraftChange={keepSpokenDraft}
+          onClose={() => {
+            // Kept only while another tab's newer work blocks creating it.
+            if (!staleRef.current) spokenDraftRef.current = undefined;
+            closeDialog();
+          }}
           onManual={() => setDialog({ kind: 'new-manual' })}
           onCreate={async (state, audio) => {
+            const notCreated =
+              'Not created yet: another tab saved newer work. Choose “Reload latest” above; your instructions stay in this dialog.';
             // Refuse before storing audio, so a refused create leaves no orphan recording.
-            if (blockIfStale()) throw new Error(STALE_WORKSPACE_MESSAGE);
+            if (blockIfStale()) throw new Error(notCreated);
             if (workspaceRef.current.length >= 40)
               throw new Error('Export and remove an older handover before adding another.');
-            if (audio && state.utterances[0])
-              await saveAudio(state.utterances[0].utteranceId, audio.blob);
-            if (addHandover(state))
+            const recordingId = audio ? state.utterances[0]?.utteranceId : undefined;
+            if (audio && recordingId) await saveAudio(recordingId, audio.blob);
+            if (addHandover(state)) {
+              spokenDraftRef.current = undefined;
               setToast('Reviewed handover created. The incoming person can now state their plan.');
+              return;
+            }
+            // Refused after the audio was stored (another tab saved meanwhile).
+            if (recordingId) void removeAudio([recordingId]).catch(() => undefined);
+            throw new Error(staleRef.current ? notCreated : 'The handover was not created.');
           }}
         />
       )}
@@ -1114,7 +1196,7 @@ export default function App() {
               if (addHandover(createHandover(input)))
                 setToast('Handover created. Ask the incoming person to explain the plan.');
             } catch (cause) {
-              setError(messageOf(cause));
+              fail(messageOf(cause));
             }
           }}
         />
@@ -1459,6 +1541,23 @@ export default function App() {
             saved workspace first. Audio is not in the backup; existing recordings on this device
             stay available when their identifiers match.
           </p>
+          {restoreOverNewer && (
+            <div className="inline-error" role="alert" data-testid="restore-replaces-newer">
+              <p>
+                Another tab saved newer work after this tab last loaded. Restoring also replaces
+                that newer work, not only what this tab shows. Reload the latest first to see it.
+              </p>
+              <label className="review-attestation">
+                <input
+                  type="checkbox"
+                  data-testid="confirm-replace-newer"
+                  checked={replaceNewer}
+                  onChange={(event) => setReplaceNewer(event.target.checked)}
+                />
+                Replace the newer work from the other tab as well
+              </label>
+            </div>
+          )}
           <div className="modal-actions">
             <button type="button" className="button" onClick={closeDialog}>
               Cancel
@@ -1480,7 +1579,14 @@ export default function App() {
               type="button"
               className="button button-primary"
               data-testid="confirm-workspace-restore"
+              disabled={restoreOverNewer && !replaceNewer}
               onClick={() => {
+                // Newer work may have arrived since this dialog was drawn.
+                if (!replaceNewer && (staleRef.current || hasNewerSavedWorkspace())) {
+                  staleRef.current = true;
+                  setStaleWorkspace(true);
+                  return;
+                }
                 try {
                   const restored = restoreWorkspaceBackup(dialog.raw);
                   const current =
@@ -1514,7 +1620,7 @@ export default function App() {
                   setError('');
                   setToast('Workspace restored from the validated backup.');
                 } catch (cause) {
-                  setError(messageOf(cause));
+                  fail(messageOf(cause));
                 }
               }}
             >

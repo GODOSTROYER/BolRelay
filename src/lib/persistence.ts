@@ -27,9 +27,14 @@ export const STALE_WORKSPACE_MESSAGE =
 let knownWriteCount = 0;
 let knownWriteToken: string | undefined;
 // The exact valid saved text this tab last loaded or wrote, and its handovers
-// as JSON. Saved text equal to it needs no new validation.
+// as JSON in the form this tab holds them (after the load-time recheck of
+// interpretations). Saved text equal to it needs no new validation.
 let knownRaw: string | null = null;
 let knownHandoversJson: string | null = null;
+// The last saved text read by `readWorkspace` and its result. Reading the same
+// text again (React may run the initial read twice) returns the same rechecked
+// handovers, so their recheck events match the content remembered as saved.
+let lastRead: { raw: string; snapshot: WorkspaceSnapshot } | null = null;
 // The saved text this tab last saw, readable or not. A reset only replaces
 // unreadable data that the person was actually shown.
 let seenRaw: string | null = null;
@@ -201,13 +206,13 @@ export function readWorkspace(): WorkspaceSnapshot {
     const raw = localStorage.getItem(STORAGE_KEY);
     seenRaw = raw;
     if (!raw) return { handovers: [], activeId: null, warning: null };
-    const snapshot = parseWorkspaceBackup(raw);
-    const data = JSON.parse(raw) as {
-      handovers: unknown;
-      writeCount?: unknown;
-      writeToken?: unknown;
-    };
-    remember(raw, JSON.stringify(data.handovers), stampOf(data));
+    const snapshot = lastRead?.raw === raw ? lastRead.snapshot : parseWorkspaceBackup(raw);
+    lastRead = { raw, snapshot };
+    const data = JSON.parse(raw) as { writeCount?: unknown; writeToken?: unknown };
+    // The rechecked reading counts as the content saved under this counter: it
+    // is derived from that data alone, so saving it is not new work and must
+    // not make other tabs (which derive the same reading) stale.
+    remember(raw, JSON.stringify(snapshot.handovers), stampOf(data));
     return snapshot;
   } catch {
     return {
@@ -225,7 +230,7 @@ export function readWorkspace(): WorkspaceSnapshot {
 export function writeWorkspace(
   handovers: HandoverState[],
   activeId: string | null,
-): { ok: boolean; error?: string; conflict?: boolean } {
+): { ok: boolean; error?: string; conflict?: boolean; unreadable?: boolean } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     let savedHandovers: string | null = null;
@@ -234,13 +239,14 @@ export function writeWorkspace(
       // checked for shape and integrity only (no reinterpretation) before use.
       if (raw !== knownRaw && !readable(raw)) {
         seenRaw = raw;
-        return { ok: false, error: UNREADABLE_WARNING };
+        return { ok: false, unreadable: true, error: UNREADABLE_WARNING };
       }
       if (isNewer(raw)) return { ok: false, conflict: true, error: STALE_WORKSPACE_MESSAGE };
+      // Same counter and token: the saved text is this tab's known content, or
+      // another tab's recheck of that same data written without advancing the
+      // counter (two tabs opened together); either way nothing new to keep.
       savedHandovers =
-        raw === knownRaw && knownHandoversJson !== null
-          ? knownHandoversJson
-          : JSON.stringify((JSON.parse(raw) as { handovers: unknown }).handovers);
+        knownHandoversJson ?? JSON.stringify((JSON.parse(raw) as { handovers: unknown }).handovers);
     }
     const { content, handoversJson } = prepare(handovers, activeId);
     // Only a change to handover content advances the counter. Selecting another
