@@ -169,10 +169,11 @@ function unknownIdentifier(text: string, items: HandoverItem[]): boolean {
   );
 }
 
-function splitClauses(text: string): Evidence[] {
+/** Clause spans with offsets into `text`; utteranceId is left empty for the caller to set. */
+export function splitClauses(text: string): Evidence[] {
   // Work only with original-string offsets. Number normalisation never changes evidence.
   const separator =
-    /[.!?;।\n]+|,(?!\s*(?:sorry|no\b|actually|i mean|then\b|माफ|नाही|नहीं))|\b(?:and|but)\b(?=\s+(?:(?:i|we|they)\s+(?:will\s+)?)?(?:send|dispatch|release|ship|leave|hold|keep|wait|retain|pack|prepare|wrap|collect|pick\s+up)\b)|\s(?:और|आणि|लेकिन|पण)\s(?=(?:मैं|हम|मी|आम्ही)\s)/giu;
+    /[.!?;।\n]+|,(?!\s*(?:sorry|no\b|actually|i mean|then\b|माफ|नाही|नहीं))|\b(?:and|but)\b(?=\s+(?:(?:i|we|they)\s+(?:will\s+)?|[\p{L}\p{M}]+\s+(?:will|shall)\s+)?(?:send|dispatch|release|ship|leave|hold|keep|wait|retain|pack|prepare|wrap|collect|pick\s+up)\b)|\s(?:और|आणि|लेकिन|पण)\s(?=(?:मैं|हम|मी|आम्ही)\s)/giu;
   const spans: Evidence[] = [];
   let previous = 0;
   for (const match of text.matchAll(separator)) {
@@ -234,6 +235,77 @@ export function timeFromClause(text: string): {
   };
 }
 
+const ownerStopwords = new Set(
+  [
+    ...['i', 'me', 'we', 'us', 'you', 'he', 'him', 'she', 'her', 'they', 'them', 'it', 'this'],
+    ...['that', 'these', 'those', 'who', 'which', 'all', 'both', 'everything', 'everyone'],
+    ...['then', 'and', 'also', 'so', 'but', 'now', 'there', 'here', 'one', 'the'],
+    ...['someone', 'somebody', 'anyone', 'anybody', 'nobody', 'everybody'],
+    ...['मैं', 'हम', 'तुम', 'आप', 'वह', 'वो', 'वे', 'ये', 'यह', 'इसे', 'उसे', 'फिर', 'तो', 'भी'],
+    ...['ही', 'अब', 'अभी', 'आज', 'और', 'के', 'की', 'का', 'को', 'पर', 'में', 'से', 'बाद', 'तक'],
+    ...['बजे', 'कर', 'मत', 'नहीं', 'मी', 'आम्ही', 'तू', 'तुम्ही', 'ती', 'ते', 'हा', 'हे', 'मग'],
+    ...['आता', 'आणि', 'नंतर', 'पर्यंत', 'तोपर्यंत', 'वाजता', 'नाही'],
+  ].map(normalizeText),
+);
+const ownerVerbs =
+  '(?:send|dispatch|release|ship|hold|keep|retain|pack|prepare|wrap|collect|pick\\s+up|handle)';
+const englishOwnerSubject = new RegExp(
+  `(?<![\\p{L}\\p{M}\\p{N}])((?:[\\p{L}\\p{M}]+\\s+){0,2}[\\p{L}\\p{M}]+)(?:\\s+(?:will|shall|is going to|is to)\\s+|['’]ll\\s+)(?:also\\s+|then\\s+)?${ownerVerbs}(?![\\p{L}\\p{N}])`,
+  'giu',
+);
+// Third-person future forms only: "मैं भेजूंगा" / "मी पाठवेन" name no other owner.
+const indicOwnerVerb =
+  /(?<![\p{L}\p{M}\p{N}])([\p{L}\p{M}]+)\s+(?:(?:पैक|पॅक|पॅकिंग|गोळा)\s+)?(?:भेजेगा|भेजेगी|भेजेंगे|रखेगा|रखेगी|रखेंगे|रोकेगा|रोकेगी|रोकेंगे|करेगा|करेगी|करेंगे|उठाएगा|उठाएगी|उठाएंगे|पाठवेल|पाठवतील|ठेवेल|ठेवतील|थांबवेल|थांबवतील|करेल|करतील|घेईल|घेतील)(?![\p{L}\p{M}])/u;
+
+/**
+ * The owner a clause explicitly names. It depends only on the spoken words: owner phrasing
+ * ("assigned to X", "X will send", "X भेजेगा", "X पाठवेल") decides whether an owner was said.
+ * Names recorded anywhere on the board (never just the target's expected owner) only decide
+ * how many words a multi-word name spans; items, units, numbers and pronouns are never names.
+ */
+function statedOwner(text: string, items: HandoverItem[]): string | undefined {
+  const said = text.normalize('NFC').replace(/\s+/g, ' ').trim();
+  const boardNames = new Set(
+    items.flatMap((item) => (item.owner ? [normalizeText(item.owner)] : [])),
+  );
+  const isName = (word: string) => {
+    const value = normalizeText(word);
+    return (
+      !!value &&
+      !ownerStopwords.has(value) &&
+      !/\d/.test(normalizeNumbers(value)) &&
+      !['parcel', 'box', 'carton', 'piece'].includes(canonicalUnit(value)) &&
+      !actionFromText(value) &&
+      !items.some((item) =>
+        [item.id, item.label, ...item.aliases].some((name) => hasToken(normalizeText(name), value)),
+      )
+    );
+  };
+  const assigned =
+    /(?<![\p{L}\p{N}])(?:owner is|assigned to|handled by)\s+([\p{L}\p{M}]+)(?:\s+([\p{L}\p{M}]+))?/iu.exec(
+      said,
+    );
+  if (assigned) {
+    const pair = assigned[2] ? `${assigned[1]} ${assigned[2]}` : '';
+    if (pair && boardNames.has(normalizeText(pair))) return pair;
+    return isName(assigned[1]!) ? assigned[1] : undefined;
+  }
+  for (const match of said.matchAll(englishOwnerSubject)) {
+    const words = match[1]!.split(' ');
+    for (const length of [3, 2]) {
+      const name = words.slice(-length).join(' ');
+      if (words.length >= length && boardNames.has(normalizeText(name))) return name;
+    }
+    if (isName(words.at(-1)!)) return words.at(-1);
+  }
+  const indic = indicOwnerVerb.exec(said);
+  if (indic) {
+    const first = /^[\s,.!?;।]*([\p{L}\p{M}]+)/u.exec(said)?.[1];
+    return [indic[1]!, first].find((word): word is string => !!word && isName(word));
+  }
+  return undefined;
+}
+
 /** Extract grounded claims without ever mutating the manager's confirmed plan. */
 export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
   const text = input.text.trim();
@@ -258,12 +330,19 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     const explicitIds = input.items
       .filter((item) => hasToken(normal, item.id))
       .map((item) => item.id);
-    let targets =
-      explicitIds.length > 0
-        ? input.items.filter((item) => explicitIds.includes(item.id))
-        : input.items.filter((item) =>
-            [item.label, ...item.aliases].some((alias) => hasToken(normal, alias)),
-          );
+    // An explicit ID narrows a name it shares ("Joshi J1" is not J2), but must not hide a
+    // different item named in the same clause; otherwise that item's facts attach to the ID.
+    const explicitNames = input.items
+      .filter((item) => explicitIds.includes(item.id))
+      .flatMap((item) => [item.label, ...item.aliases].map(normalizeText));
+    let targets = input.items.filter(
+      (item) =>
+        explicitIds.includes(item.id) ||
+        [item.label, ...item.aliases].some(
+          (alias) =>
+            hasToken(normal, alias) && !explicitNames.some((name) => hasToken(name, alias)),
+        ),
+    );
     const globalReference = targets.length === 0 && allMarker.test(normal);
     if (globalReference) targets = input.items;
     if (unknownIdentifier(normal, input.items)) {
@@ -502,15 +581,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         );
     }
 
-    let owner: string | undefined;
-    const knownOwners = [
-      ...new Set(targets.map((item) => item.owner).filter((o): o is string => !!o)),
-    ];
-    const matchedOwners = knownOwners.filter((o) => hasToken(normal, o));
-    if (matchedOwners.length === 1) owner = matchedOwners[0];
-    const explicitOwner =
-      /\b(?:owner is|assigned to|handled by)\s+([\p{L}]+(?:\s+[\p{L}]+)?)/iu.exec(normal);
-    if (explicitOwner) owner = explicitOwner[1]!.trim();
+    const owner = statedOwner(span.text, input.items);
 
     claims.push({
       id: `${utteranceId}-claim-${claims.length + 1}`,
