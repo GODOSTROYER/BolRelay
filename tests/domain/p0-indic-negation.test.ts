@@ -196,16 +196,26 @@ describe('romanised Hinglish negation is not dropped', () => {
 });
 
 describe('words that merely contain न/ना are not negation', () => {
+  it.each([['mr-IN', 'मी आठ नागपूर पार्सल दुपारी तीन नंतर पाठवेन.']] as [Language, string][])(
+    '%s: %s',
+    (language, text) => {
+      const state = readback(language, text);
+      expect(codes(state)).toEqual([]);
+      expect(status(state, 'NAGPUR')).toBe('agreement');
+    },
+  );
+
+  // These words (new, hello, "numbered") are not negation, but they are content words the
+  // local rules do not explain, so the closed-world check now leaves the item uncertain.
   it.each([
     ['hi-IN', 'मैं आठ नए नागपुर पार्सल दोपहर तीन बजे के बाद भेजूंगा।'],
     ['hi-IN', 'नमस्ते मैं आठ नागपुर पार्सल दोपहर तीन बजे के बाद भेजूंगा।'],
     ['hi-IN', 'मैं आठ नागपुर पार्सल नंबर वाले दोपहर तीन बजे के बाद भेजूंगा।'],
-    ['mr-IN', 'मी आठ नागपूर पार्सल दुपारी तीन नंतर पाठवेन.'],
     ['mr-IN', 'मी आठ नवीन नागपूर पार्सल दुपारी तीन नंतर पाठवेन.'],
   ] as [Language, string][])('%s: %s', (language, text) => {
     const state = readback(language, text);
-    expect(codes(state)).toEqual([]);
-    expect(status(state, 'NAGPUR')).toBe('agreement');
+    expect(codes(state)).toEqual(['UNEXPLAINED_WORDING']);
+    expect(lastParse(state).claims[0]?.action).toBe('dispatch');
   });
 
   it('drafts a plan whose numbers (नौ, नऊ) begin with न', () => {

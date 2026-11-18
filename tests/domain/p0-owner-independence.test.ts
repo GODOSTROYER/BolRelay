@@ -84,7 +84,8 @@ describe('owner extraction is independent of the expected owner', () => {
     // Merely mentioning the expected name is not an ownership statement (it silently passed before).
     const mention = read(board('Ravi'), 'Tell Ravi I will pack twelve blue cartons.');
     expect(blue(mention).status).not.toBe('agreement');
-    expect(ownerFinding(mention)).toMatchObject({ status: 'omission' });
+    // "Tell Ravi" is not owner phrasing; the unexplained name now makes the owner uncertain.
+    expect(ownerFinding(mention)).toMatchObject({ status: 'uncertainty' });
   });
 
   it('keeps a missing owner an omission', () => {

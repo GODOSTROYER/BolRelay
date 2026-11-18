@@ -8,6 +8,7 @@ import type {
   ParseTranscriptInput,
   WorkAction,
 } from './types';
+import { allItemsMarker } from './markers';
 
 /** Bounded local grammar. It never pretends to understand arbitrary conversation. */
 export const LOCAL_PARSER_LIMITATIONS = [
@@ -88,14 +89,29 @@ const englishCompound = new RegExp(
 );
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/**
+ * Spelling variants of a negation word are folded to one form before any negation test:
+ * नहीँ/नहिं/नहि/नै → नहीं, नाय/न्हाई/नाहि/नाहीं → नाही, romanised nai/nay → nahi.
+ */
+const negationSpellings: [RegExp, string][] = [
+  [/(?<![\p{L}\p{M}])(?:नहिं|नहि|नै)(?![\p{L}\p{M}])/gu, 'नहीं'],
+  [/(?<![\p{L}\p{M}])(?:नाय|न्हाई|न्हाय|नाहि|नाहीं)(?![\p{L}\p{M}])/gu, 'नाही'],
+  [/(?<![\p{L}\p{M}\p{N}])(?:nai|nay|nahii|nahiin)(?![\p{L}\p{M}\p{N}])/gu, 'nahi'],
+];
+
 export function normalizeText(text: string): string {
-  return text
+  let value = text
     .normalize('NFC')
     .toLocaleLowerCase('en-IN')
     .replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x0966))
     .replace(/[’‘]/g, "'")
+    // Devanagari spelling folds: nukta and joiners dropped, chandrabindu read as anusvara.
+    .replace(/[़‌‍]/gu, '')
+    .replace(/ँ/gu, 'ं')
     .replace(/\s+/g, ' ')
     .trim();
+  for (const [pattern, form] of negationSpellings) value = value.replace(pattern, form);
+  return value;
 }
 
 /** Normalisation for interpreted values only; evidence keeps original text and offsets. */
@@ -112,33 +128,74 @@ export function canonicalUnit(unit: string): string {
   if (/^(parcels?|packages?|पार्सल|पार्सल्स|पैकेट|पॅकेट)$/.test(value)) return 'parcel';
   if (/^(boxes|box|बॉक्स|डब्बे|डिब्बे)$/.test(value)) return 'box';
   if (/^(cartons?|कार्टन)$/.test(value)) return 'carton';
-  if (/^(pieces?|pcs|नग|टुकड़े|तुकडे)$/.test(value)) return 'piece';
+  if (/^(pieces?|pcs|नग|टुकड़े|टुकडे|तुकडे)$/.test(value)) return 'piece';
   return value;
 }
 
 const addressWord = /(address|पता|पते|पत्ता|पत्त्याची)/u;
 const confirmWord = /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u;
+/**
+ * The one list of words that join two prerequisites ("and", "with", "&", और, आणि, के साथ,
+ * सोबत). Used to split a condition into conjuncts, to refuse a bare-value answer, and to
+ * spot a time joined with another prerequisite.
+ */
+const conjunctionBody = String.raw`&|\+|\b(?:and|plus|as\s+well\s+as|along\s+with|together\s+with|with)\b|(?<![\p{L}\p{M}])(?:और|तथा|एवं|आणि|व|तसेच|सोबत|के\s+साथ|साथ\s+में)(?![\p{L}\p{M}])`;
+const conjunction = new RegExp(conjunctionBody, 'iu');
 /** Joins two prerequisites; each conjunct must survive canonicalisation. */
-const conditionConjunction =
-  /\s*(?:,|&|\b(?:and|as well as|plus|along with)\b|(?<![\p{L}\p{M}])(?:और|तथा|एवं|आणि|व|तसेच)(?![\p{L}\p{M}]))\s*/iu;
-/** Hindi/Marathi (and romanised Hinglish) negation. Bounded tokens avoid नया, नंतर, नागपूर. */
+const conditionConjunction = new RegExp(String.raw`\s*(?:,|${conjunctionBody})\s*`, 'giu');
+/** Hindi/Marathi (and romanised Hinglish) negation. Bounded tokens avoid नया, नंतर, नागपूर, मतलब. */
 const indicNegation =
-  /नहीं|नाही|मत|(?<![\p{L}\p{M}])(?:नही|न|ना|नको|नकोस|नका|नये)(?![\p{L}\p{M}])|(?:बिना|बगैर|बग़ैर|शिवाय|विना)(?![\p{L}\p{M}])|(?<![\p{L}\p{M}\p{N}])(?:nahi|nahin|nahee|nhi|mat|na|nako|naka|nahit|bina|bagair|baghair)(?![\p{L}\p{M}\p{N}])/iu;
+  /नहीं|नाही|(?<![\p{L}\p{M}])(?:मत|नही|न|ना|नको|नकोस|नका|नये|इनकार|इंकार|मना|मनाई|बंद|नकार|नकारले|नकारतो)(?![\p{L}\p{M}])|(?<![\p{L}\p{M}])टाळ[\p{L}\p{M}]*|(?:बिना|बगैर|शिवाय|विना)(?![\p{L}\p{M}])|(?<![\p{L}\p{M}\p{N}])(?:nahi|nahin|nahee|nhi|mat|na|nako|naka|nahit|bina|bagair|baghair)(?![\p{L}\p{M}\p{N}])/iu;
+/**
+ * English negation and refusal, beyond the supported "do not send" prohibitions:
+ * contractions (shouldn't, isn't), "no longer", "no need", none, neither, hardly, refuse.
+ */
+const englishNegation =
+  /\b(?:not|never|without|none|neither|nor|nothing|nobody|hardly|barely|scarcely|refuses?|refused|refusing|declines?|declined|declining|avoid(?:s|ed|ing)?|stop(?:s|ped|ping)?|cancel(?:s|led|ed|ling|ing)?|cannot|no\s+(?:longer|need|more|one|way|parcels?|packages?))\b|n't\b/iu;
+/** A prerequisite stated as failing or reversed ("isn't confirmed", "is disconfirmed", "fails"). */
+const negatedPrerequisiteWord =
+  /\b(?:unconfirmed|disconfirm\w*|unverified|fail(?:s|ed|ing|ure)?|wrong|incorrect|invalid|reject\w*|revoked?|no\s+longer)\b/iu;
+const testEnglishNegation = (text: string) =>
+  englishNegation.test(text.replace(/\bnot\s+before\b/giu, ' ')) ||
+  negatedPrerequisiteWord.test(text);
+
+const addressForms = String.raw`address(?:es)?|पता|पते|पत्ता|पत्ते|पत्त्याची|पत्त्याचे|पत्त्याचा`;
+const confirmForms = String.raw`confirm(?:s|ed|ation)?|verif(?:y|ies|ied|ication)|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही`;
+const bareConditionWords = new RegExp(
+  letterBoundaryEarly(
+    String.raw`${addressForms}|${confirmForms}|the|is|are|has|have|been|be|gets?|got|was|until|till|unless|once|only|after|if|when|provided|providing|that|as\s+soon\s+as|on\s+condition|it|it's|its|of|की|का|के|हो|होने|होना|तक|जब\s+तक|पर|बाद|होईपर्यंत|पर्यंत|झाल्यावर|झाल्यानंतर|होणे|ची|चे|चा`,
+  ),
+  'giu',
+);
+function letterBoundaryEarly(body: string): string {
+  return `(?<![\\p{L}\\p{M}\\p{N}'])(?:${body})(?![\\p{L}\\p{M}\\p{N}'])`;
+}
+
+/**
+ * "Address confirmed" and nothing else: after the address and confirmation words and the
+ * condition's function words are removed, no word may remain. "Confirmed with payment
+ * received", "isn't confirmed", "confirmation fails" and "disconfirmed" all leave a word.
+ */
+export function isBareAddressConfirmation(text: string): boolean {
+  const value = normalizeNumbers(text);
+  if (!new RegExp(letterBoundaryEarly(addressForms), 'iu').test(value)) return false;
+  if (!new RegExp(letterBoundaryEarly(confirmForms), 'iu').test(value)) return false;
+  return value.replace(bareConditionWords, ' ').replace(/[\s.,!?;:।'"-]+/gu, '').length === 0;
+}
 
 export function canonicalCondition(condition: string): string {
   const value = normalizeNumbers(condition);
   // A negated prerequisite can never collapse to its positive counterpart.
-  if (/\b(?:not|never|without|unconfirmed)\b/iu.test(value) || indicNegation.test(value))
-    return value;
+  if (testEnglishNegation(value) || indicNegation.test(value)) return value;
   // Alternatives are not a conjunction of prerequisites; keep the full wording.
   if (/\b(?:or|either)\b|(?<![\p{L}\p{M}])(?:या|किंवा|अथवा)(?![\p{L}\p{M}])/iu.test(value))
     return value;
   // Every conjunct is kept: "address confirmed and payment received" never
   // collapses to its first prerequisite. Order does not change the meaning.
   const parts = value
-    .split(new RegExp(conditionConjunction.source, 'giu'))
+    .split(conditionConjunction)
     .map((part) =>
-      addressWord.test(part) && confirmWord.test(part)
+      isBareAddressConfirmation(part)
         ? 'address confirmed'
         : part
             .replace(
@@ -157,7 +214,7 @@ const hasToken = (text: string, token: string) =>
   new RegExp(`(?<![\\p{L}\\p{N}])${escape(normalizeText(token))}(?![\\p{L}\\p{N}])`, 'u').test(
     text,
   );
-const allMarker = /\b(?:all|everything|both)\b|सभी|सब(?:को|के)?|सारे|सगळे|सर्व/iu;
+const allMarker = allItemsMarker;
 const holdMarker = /\b(?:hold|wait|keep|retain|stay|remain)\b|रोक|रुके|रख|थांब|ठेव/iu;
 const dispatchMarker = /\b(?:send|dispatch|release|ship|leave)\b|भेज|रवाना|पाठव|सोड/iu;
 const packMarker = /\b(?:pack|prepare|wrap)\b|पैक|पॅक|पॅकिंग/iu;
@@ -168,8 +225,25 @@ const prohibitedDispatch =
   /\b(?:do not|don't|will not|must not|won't|cannot|can't|never)\s+(?:send|dispatch|release|ship)\b|(?<![\p{L}\p{M}])(?:(?:मत|नहीं|नही)\s*|न\s+)भेज(?![ाेी](?![\p{L}\p{M}]))|भेज(?:ना|नी|ने|ो|ें|िए|िये|ूं|ूँ|ूंगा|ूँगा|ूंगी|ूँगी|ेंगे|ेंगी|ेगा|ेगी)?\s*(?:नहीं|नही|मत)(?![\p{L}\p{M}])(?!\s*तो(?![\p{L}\p{M}]))|(?<![\p{L}\p{M}])(?:(?:नाही|नको)\s*|न\s+)पाठव(?!(?:ले|ला|ली|लं)(?![\p{L}\p{M}]))|पाठव(?:ू|णार|ेन|ायचे|ायचा|ायची|ायला|ावे|ावेत)?\s*(?:नाही|नाहीत|नका|नको|नकोस|नये)(?![\p{L}\p{M}])(?!\s*तर(?![\p{L}\p{M}]))/iu;
 const prohibitedDispatchAll = new RegExp(prohibitedDispatch.source, 'giu');
 // Pleonastic negation of the supported "until" idioms: जब तक … नहीं होता / जोपर्यंत … होत नाही.
+// The negated हो* must directly follow the address and confirmation words, so the span can
+// never run past तब तक / तोपर्यंत into a negation of the main clause ("… तब तक रोकना नहीं होगा").
 const indicUntilNegation =
-  /जब\s*तक\s+[^,;।]*?(?<![\p{L}\p{M}])(?:नहीं|नही|न)\s+हो[\p{L}\p{M}]*|जोपर्यंत\s+[^,;।]*?(?:होत|होणार|झाला|झाली|झाले)\s+नाही(?![\p{L}\p{M}])/giu;
+  /जब\s*तक\s+(?:पता|पते(?:\s+की)?|पत्ते(?:\s+की)?)\s+(?:कन्फर्म|पुष्टि|पुष्टी|सत्यापित|सही)\s+(?:नहीं|नही|न)\s+हो(?:ता|ती|ते|गा|गी|गे|ए|ये|)(?![\p{L}\p{M}])(?:\s+(?:जाता|जाती|जाते|जाए|जाये|जाएगा|जाएगी|है|हैं)(?![\p{L}\p{M}]))*|जोपर्यंत\s+(?:पत्ता|पत्त्याची|पत्त्याचे|पत्त्याचा)\s+(?:कन्फर्म|पुष्टी|पुष्टि)\s+(?:होत|होणार|झाला|झाली|झाले)\s+नाही(?![\p{L}\p{M}])/giu;
+/** A Hindi/Marathi "until" frame. Without the negated idiom above it means "as long as". */
+const indicUntilFrame = /जब\s*तक|(?<![\p{L}\p{M}])जोपर्यंत(?![\p{L}\p{M}])/u;
+const indicUntilIdiom = new RegExp(indicUntilNegation.source, 'iu');
+/** Count "until" frames: a second तक / पर्यंत is a second prerequisite ("… होने तक भुगतान मिलने तक"). */
+const untilFrames = (normal: string) =>
+  (
+    normal.match(
+      /(?<!तब\s*)(?<![\p{L}\p{M}])तक(?![\p{L}\p{M}])|(?<!(?:^|[^\p{L}\p{M}])तो)पर्यंत(?![\p{L}\p{M}])/gu,
+    ) ?? []
+  ).length;
+/** A clock phrase joined with another prerequisite ("after 3 PM and payment", "… बाद और …"). */
+const timeWithPrerequisite = new RegExp(
+  String.raw`\b(?:after|past|not before)\s+\d[^,;]*?\s(?:${conjunctionBody})\s*(?!then\s)|(?:बाद|नंतर)\s+(?:${conjunctionBody})\s`,
+  'iu',
+);
 const indicNegatedHold =
   /(?<![\p{L}\p{M}])(?:मत|नहीं|नही|न|ना|नको)\s+(?:रोक|रुक|रख|थांब|ठेव)|(?:रोक|रुक|रख|थांब|ठेव)[\p{L}\p{M}]*\s+(?:मत|नहीं|नही|ना|नाही|नाहीत|नका|नको|नकोस|नये)(?![\p{L}\p{M}])/giu;
 
@@ -185,25 +259,161 @@ function unexplainedIndicText(normal: string, valueAnswer = false): string {
 const unsupportedIndicNegation = (normal: string, valueAnswer = false) =>
   indicNegation.test(unexplainedIndicText(normal, valueAnswer));
 const gateMarker =
-  /\b(?:until|unless|once|only after|after the address|when the address)\b|जब\s*तक|होने\s*तक|पुष्टि\s*के\s*बाद|जोपर्यंत|होईपर्यंत|पुष्टी\s*झाल्यावर|पत्ता\s*कन्फर्म\s*झाल्यावर/iu;
+  /\b(?:until|till|unless|once|only after|after the address|when the address)\b|जब\s*तक|होने\s*तक|पुष्टि\s*के\s*बाद|जोपर्यंत|होईपर्यंत|पुष्टी\s*झाल्यावर|पत्ता\s*कन्फर्म\s*झाल्यावर/iu;
 /** Conditional wording, tested only after a clock phrase ("after 3 PM") is removed. */
 const conditionalMarker =
-  /\b(?:until|unless|once|only after|only if|if|provided|providing|as soon as|on condition that|subject to|when|after)\b|अगर|यदि|के\s*बाद|होने\s*पर|मिलने\s*पर|तभी|तरच|(?<![\p{L}\p{M}])जर(?![\p{L}\p{M}])|झाल्यावर|झाल्यानंतर|मिळाल्यावर|मिळाल्यानंतर|नंतर|ने\s*तक|पर्यंत/iu;
+  /\b(?:until|till|unless|once|only after|only if|if|provided|providing|as soon as|on condition that|subject to|when|whenever|after|as long as|so long as|assuming|in case|depending on|depends on|given|pending|following|upon|on receipt|approv\w*|permission|clearance|sign-?off)\b|अगर|यदि|बशर्ते|शर्त|के\s*बाद|होने\s*पर|मिलने\s*पर|तभी|तरच|ते\s+ही(?![\p{L}\p{M}])|(?<![\p{L}\p{M}])(?:जर|तो|तर|जब|अट)(?![\p{L}\p{M}])|ल्यावर|ल्यानंतर|ल्यास(?![\p{L}\p{M}])|(?:ला|ली|ले|लं)\s+की(?![\p{L}\p{M}])|नंतर|ने\s*तक|पर्यंत/iu;
 const englishConditionTail =
-  /\b(?:until|unless|once|only after|only if|if|provided(?:\s+that)?|providing(?:\s+that)?|as soon as|on condition that|subject to|when|after)\s+(.+)$/iu;
+  /\b(?:until|till|unless|once|only after|only if|if|provided(?:\s+that)?|providing(?:\s+that)?|as soon as|on condition that|subject to|when|after)\s+(.+)$/iu;
 /** A following commitment ("..., then release them") is not part of the prerequisite. */
 const commitmentAfterCondition =
   /(?:\s*,\s*(?:(?:and|but|or|then)\s+)*|\s+(?:and|but|or|then)\s+(?:then\s+)?)(?:immediately\s+|now\s+)?(?:(?:i|we|they)\s+(?:will\s+)?)?(?:send|dispatch|release|ship|leave|hold|keep|wait|retain|pack|prepare|wrap|collect|pick\s+up|give|hand)\b.*$/iu;
 /** Exclusions ("all except J1") must never become a claim about the excluded item. */
 const exclusionMarker =
-  /\b(?:except|excepting|excluding|exclude|other than|apart from|aside from|save for|besides|not including|leaving out|leave out)\b|\b(?:all|everything|anything|both|every\s+\p{L}+)(?:\s+\p{L}+)?\s+but\b|\bbut\s+not\b|छोड़?\s*(?:कर|के)|सिवाय|सिवा|अलावा|सोडून(?!\s*(?:द्या|दे|दिल))|वगळून|वगळता|व्यतिरिक्त|खेरीज|सोडता/iu;
+  /\b(?:except|excepting|excluding|exclude|other than|apart from|aside from|save for|besides|not including|leaving out|leave out)\b|\b(?:all|everything|anything|both|every\s+\p{L}+)(?:\s+\p{L}+)?\s+but\b|\bbut\s+not\b|\b(?:with the exception of|exception|bar|barring|omit|omits|omitting|omitted|skip|skips|skipping|skipped|leaving aside)\b|छोड़?\s*(?:कर|के)|(?<![\p{L}\p{M}])(?:छोड|हटा|हटाकर|हटाके|निकालकर|निकाल\s*कर)(?![\p{L}\p{M}])|हटा\s*(?:कर|के)(?![\p{L}\p{M}])|सिवाय|सिवा|अलावा|सोडून(?!\s*(?:द्या|दे|दिल|टाक))|(?<![\p{L}\p{M}])वगळ[\p{L}\p{M}]*|सोडल्यास|सोडल[ें]\s*तर(?![\p{L}\p{M}])|व्यतिरिक्त|खेरीज|सोडता/iu;
 
 /**
  * Hindi/Marathi perfect forms of the supported work verbs ("पैक कर दिए हैं", "रख दिया",
  * "भेजा", "पॅक केले", "ठेवले", "गोळा केला"). They report completed work, not a next action.
  */
 const completedIndicAction =
-  /(?<![\p{L}\p{M}])(?:(?:पैक|पॅक|पॅकिंग|गोळा|रवाना|डिस्पैच|डिस्पॅच)\s*(?:कर\s*)?(?:दि(?:या|ए|यी|ई)|लि(?:या|ए)|किया|किए|की|कर\s*चुक[\p{L}\p{M}]*|केल[ेां]|केली|झाल[ेाी])|(?:भेजा|भेजे|भेजी|रखा|रखे|रोका|रोके|उठाया|उठाए|उठा\s*लि(?:या|ए))|(?:रख|रोक|उठा)\s*(?:दि(?:या|ए)|लि(?:या|ए)|चुक[\p{L}\p{M}]*)|(?:ठेवल[ेां]|ठेवली|थांबवल[ेां]|थांबवली|घेतल[ेां]|घेतली|सोडल[ेां]|सोडली|पाठवली))(?![\p{L}\p{M}])/u;
+  /(?<![\p{L}\p{M}])(?:(?:पैक|पॅक|पॅकिंग|गोळा|रवाना|डिस्पैच|डिस्पॅच)\s*(?:कर\s*)?(?:दि(?:या|ए|यी|ई)|लि(?:या|ए)|किया|किए|की|कर\s*चुक[\p{L}\p{M}]*|केल[ेां]|केली|झाल[ेाी])|(?:भेजा|भेजे|भेजी|रखा|रखे|रोका|रोके|उठाया|उठाए|उठा\s*लि(?:या|ए))|(?:रख|रोक|उठा)\s*(?:दि(?:या|ए)|लि(?:या|ए)|चुक[\p{L}\p{M}]*)|(?:ठेवल[ेां]|ठेवली|थांबवल[ेां]|थांबवली|घेतल[ेां]|घेतली|सोडल[ेां]|सोडली|पाठवली))(?![\p{L}\p{M}])(?!\s*जा(?!\s*चुक)[\p{L}\p{M}]*)/u;
+
+/** An explicit "no condition" statement ("बिना शर्त", "अट नाही", "unconditionally") is not a negation. */
+const explicitNoCondition =
+  /\b(?:unconditionally|without\s+(?:any\s+)?(?:conditions?|prerequisites?)|with\s+no\s+(?:conditions?|prerequisites?)|no\s+(?:conditions?|prerequisites?))\b|(?<![\p{L}\p{M}])(?:बिना\s+(?:किसी\s+)?शर्त(?:\s+के)?|बिनशर्त|बेशर्त|विना\s+अट|(?:कोणतीही\s+)?अट\s+नाही)(?![\p{L}\p{M}])/giu;
+/** Words that point at more items than the IDs named next to them ("the rest", "बाकी", "उरलेले"). */
+const groupWord =
+  /\b(?:all|both|rest|remaining|remainder|other|others|everything)\b|(?<![\p{L}\p{M}])(?:बाकी|बाकीचे|बाकीची|बाकीचा|सब|सभी|सारे|सर्व|सगळे|सगळी|उरलेले|उरलेली|उरलेला|इतर|दूसरा|दूसरे|दूसरी|दुसरा|दुसरे|दुसरी)(?![\p{L}\p{M}])/iu;
+const unitWords = String.raw`parcels?|packages?|boxes|box|cartons?|pieces?|pcs|पार्सल|पार्सल्स|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकडे|तुकडे`;
+
+/**
+ * An explicit ID next to a group word, or next to a shared name that is not attached to an
+ * ID, implies other items too ("J1 छोड़ बाकी", "one Joshi parcel minus J1", "the remaining
+ * Joshi parcel J2"). Only a clause that names every item sharing the ID's name is clear.
+ */
+function impliedExclusion(normal: string, explicitIds: string[], items: HandoverItem[]): boolean {
+  if (explicitIds.length === 0) return false;
+  const names = (item: HandoverItem) => [item.label, ...item.aliases].map(normalizeText);
+  const named = items.filter((item) => explicitIds.includes(item.id));
+  const family = items.filter(
+    (item) =>
+      explicitIds.includes(item.id) ||
+      named.some((other) => names(other).some((name) => names(item).includes(name))),
+  );
+  if (family.every((item) => explicitIds.includes(item.id))) return false;
+  if (groupWord.test(normal)) return true;
+  const shared = [
+    ...new Set(
+      family.flatMap((item) =>
+        names(item).filter(
+          (name) => family.filter((other) => names(other).includes(name)).length > 1,
+        ),
+      ),
+    ),
+  ];
+  let rest = normal;
+  for (const id of explicitIds.map(normalizeText))
+    for (const name of shared) {
+      const a = escape(name);
+      const b = escape(id);
+      rest = rest.replace(
+        new RegExp(
+          letterBoundaryEarly(`${a}(?:[\\s·:-]+(?:${unitWords}))?[\\s·:-]+${b}|${b}[\\s·:-]+${a}`),
+          'giu',
+        ),
+        ' ',
+      );
+    }
+  return shared.some((name) => hasToken(rest, name));
+}
+
+/**
+ * Closed-world residual check. Words each language's grammar accounts for without
+ * changing a claim: pronouns, auxiliaries, articles, connectives and gate words. These lists
+ * are explicit and reviewed; content words (nouns, other verbs, qualifiers) never belong here.
+ */
+const explainedFunctionWords = new Set(
+  [
+    // English pronouns, auxiliaries, articles and connectives.
+    ...'i we you they he she it them this that these those the a an my our your their'.split(' '),
+    ...`will shall am is are be going to please now then and also of for all both total`.split(' '),
+    ...`only just exactly here i'll we'll they'll it's ok okay item items`.split(' '),
+    // English gate words. Their prerequisite is read (or refused) by the condition rules.
+    ...'until till unless once after when if provided providing as soon on condition'.split(' '),
+    // Hindi pronouns, postpositions, particles and auxiliaries.
+    ...'मैं हम मुझे हमें आप तुम ये यह वह वो वे इसे इन्हें उन्हें इनको उनको इन उन'.split(' '),
+    ...'सभी सब सारे कुल सिर्फ केवल ही भी अभी अब फिर और के की का को में पर है हैं हूं जी'.split(' '),
+    ...'कर करूंगा करूंगी करेंगे करेगा करेगी करना करनी करने करें करो करके करते करता करती करूं'.split(' '),
+    ...'दूंगा दूंगी देंगे देगा देगी दें देना दीजिए दीजिये लूंगा लूंगी लेंगे लेगा'.split(' '),
+    ...'जाएगा जाएगी जाएंगे जायेंगे जाएं जाना किए किये रहूंगा रहेंगे होगा होंगे'.split(' '),
+    // Marathi pronouns, particles and auxiliaries.
+    ...'मी आम्ही आपण तू तुम्ही ते ती हे हा ही ह्या त्यांना त्या सर्व सगळे सगळी फक्त एकूण'.split(' '),
+    ...'आता मग आणि व चे ची चा ला आहे आहेत करेन करीन करू करा करणार करावे करायचे करायला'.split(' '),
+    ...'टाकेन टाकू टाका टाकणार जाईन जाऊ जाणार देईन देऊ द्या दे'.split(' '),
+  ].map(normalizeText),
+);
+/** Supported work verbs and their inflections (any suffix on a supported stem). */
+const explainedVerb =
+  /^(?:send|sends|sending|dispatch|dispatches|dispatching|release|releases|releasing|ship|ships|shipping|leave|leaves|hold|holds|holding|keep|keeps|keeping|wait|waits|waiting|retain|retains|retaining|stay|remain|pack|packs|packing|prepare|prepares|preparing|wrap|wraps|wrapping|collect|collects|collecting|pick|picks|picking|up|out|back|aside)$|^(?:भेज|रोक|रुक|रख|पैक|पॅक|उठा|रवाना|डिस्पैच|डिस्पॅच|पाठव|थांब|ठेव|सोड|गोळा|घेऊन)/u;
+const prohibitedDispatchWords = new RegExp(
+  `(?:${prohibitedDispatch.source})[\\p{L}\\p{M}]*`,
+  'giu',
+);
+/** Clock period words; explained only when a clock time was read from the clause. */
+const clockWords = new Set(
+  `in am pm a.m p.m morning afternoon evening o'clock बजे बाद दोपहर शाम सुबह सवेरे नंतर दुपार दुपारी संध्याकाळी सकाळी सकाळ वाजता`
+    .split(' ')
+    .map(normalizeText),
+);
+/** The address-confirmation prerequisite and its supported Hindi/Marathi frames. */
+const addressConditionWords = new RegExp(
+  letterBoundaryEarly(
+    String.raw`${addressForms}|${confirmForms}|gets?|got|has|have|been|होने|हो|जाने|जाए|तक|जब\s+तक|तब\s+तक|जोपर्यंत|तोपर्यंत|होईपर्यंत|झाल्यावर|झाल्यानंतर|झाली|झाला|होत|के\s+बाद`,
+  ),
+  'giu',
+);
+
+function unexplainedWords(input: {
+  text: string;
+  items: HandoverItem[];
+  owner?: string;
+  conditionTail?: string;
+  addressCondition: boolean;
+  clockTime: boolean;
+  /** A self-correction between two numbers was accepted ("twelve, sorry, eight"). */
+  correction: boolean;
+}): string[] {
+  // A supported prohibition ("do not send", "न भेजें", "नको पाठवू") is a hold, whole word included.
+  let rest = input.text.replace(prohibitedDispatchWords, ' ');
+  if (input.correction)
+    rest = rest.replace(/\b(?:sorry|actually|i mean|no)\b|माफ\s*(?:करो|करें|कीजिए|करा)?/giu, ' ');
+  if (input.conditionTail) rest = rest.replace(input.conditionTail, ' ');
+  if (input.addressCondition)
+    rest = rest.replace(indicUntilNegation, ' ').replace(addressConditionWords, ' ');
+  const names = input.items
+    .flatMap((item) => [item.id, item.label, ...item.aliases])
+    .flatMap((name) => [normalizeText(name), normalizeNumbers(name)])
+    .sort((a, b) => b.length - a.length);
+  for (const name of names)
+    rest = rest.replace(new RegExp(letterBoundaryEarly(escape(name)), 'giu'), ' ');
+  rest = rest.replace(new RegExp(letterBoundaryEarly(unitWords), 'giu'), ' ');
+  rest = rest.replace(/\bon\s+hold\b/giu, ' hold ');
+  if (input.owner) {
+    rest = rest.replace(/\b(?:owner is|assigned to|handled by)\b/giu, ' ');
+    for (const word of normalizeText(input.owner).split(' '))
+      rest = rest.replace(new RegExp(letterBoundaryEarly(escape(word)), 'giu'), ' ');
+  }
+  return (rest.match(/[\p{L}\p{M}][\p{L}\p{M}'.]*/gu) ?? [])
+    .map((word) => word.replace(/['.]+$/u, ''))
+    .filter(
+      (word) =>
+        word &&
+        !explainedFunctionWords.has(word) &&
+        !explainedVerb.test(word) &&
+        !(input.clockTime && clockWords.has(word)),
+    );
+}
 
 export function actionFromText(text: string): WorkAction | undefined {
   const normal = normalizeText(text);
@@ -232,7 +442,7 @@ function hasOnlyImplicitObject(text: string): boolean {
     )
     .replace(/\b(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs)\b/giu, ' ')
     .replace(
-      /पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे|(?:रोक|रख|थांब|ठेव|भेज|पाठव|सोड|पैक|पॅक|उठा)[\p{L}\p{M}]*|मैं|हम|मी|आम्ही|यह|ये|वह|इसे|इन्हें|हा|हे|ह्या|ते|त्यांना|आता|अभी/gu,
+      /पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|टुकडे|तुकडे|(?:रोक|रख|थांब|ठेव|भेज|पाठव|सोड|पैक|पॅक|उठा)[\p{L}\p{M}]*|मैं|हम|मी|आम्ही|यह|ये|वह|इसे|इन्हें|हा|हे|ह्या|ते|त्यांना|आता|अभी/gu,
       ' ',
     )
     .replace(/[\d\s.,!?;:'"’‘-]+/gu, '');
@@ -269,7 +479,7 @@ function isValueFragment(numeric: string, item: HandoverItem): boolean {
     .replace(
       new RegExp(
         letterBoundary(
-          "after|not before|at|past|from|onwards?|o'?clock|am|pm|a\\.m\\.?|p\\.m\\.?|morning|afternoon|evening|in|only|just|total|exactly|it'?s|it|is|are|they|them|that'?s|will|be|for|of|the|a|an|parcels?|packages?|boxes|box|cartons?|pieces?|pcs|बजे|के|बाद|नंतर|वाजता|वाजल्यानंतरच?|सुबह|सवेरे|दोपहर|शाम|सकाळी?|दुपारी?|संध्याकाळी?|सिर्फ|केवल|बस|कुल|एकूण|फक्त|है|हैं|आहे|आहेत|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे",
+          "after|not before|at|past|from|onwards?|o'?clock|am|pm|a\\.m\\.?|p\\.m\\.?|morning|afternoon|evening|in|only|just|total|exactly|it'?s|it|is|are|they|them|that'?s|will|be|for|of|the|a|an|parcels?|packages?|boxes|box|cartons?|pieces?|pcs|बजे|के|बाद|नंतर|वाजता|वाजल्यानंतरच?|सुबह|सवेरे|दोपहर|शाम|सकाळी?|दुपारी?|संध्याकाळी?|सिर्फ|केवल|बस|कुल|एकूण|फक्त|है|हैं|आहे|आहेत|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|टुकडे|तुकडे",
         ),
         'giu',
       ),
@@ -569,9 +779,10 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
 
   for (const span of isBareReply(text) && answerItem ? [] : splitClauses(text)) {
     const evidence = { ...span, utteranceId };
-    const normal = normalizeText(span.text);
+    // "बिना शर्त" / "unconditionally" states that there is no prerequisite; it is not a negation.
+    const normal = normalizeText(span.text).replace(explicitNoCondition, ' ').replace(/\s+/g, ' ');
     const numeric = normalizeNumbers(normal);
-    if (exclusionMarker.test(normal)) {
+    if (exclusionMarker.test(normal) || /\bminus\s+(?!\d)/iu.test(numeric)) {
       // "Send all except J1" names J1 but means the opposite for it. Never
       // turn the excluded item into the target; ask for an explicit list.
       issue(
@@ -588,6 +799,16 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     const explicitIds = input.items
       .filter((item) => hasToken(normal, item.id))
       .map((item) => item.id);
+    if (impliedExclusion(normal, explicitIds, input.items)) {
+      issue(
+        'UNSUPPORTED_EXCLUSION',
+        'This statement names an item together with a group it may be excluded from. Name each item and its action separately.',
+        scope.map((item) => item.id),
+        'object',
+        evidence,
+      );
+      continue;
+    }
     // An explicit ID narrows a name it shares ("Joshi J1" is not J2), but must not hide a
     // different item named in the same clause; otherwise that item's facts attach to the ID.
     const explicitNames = input.items
@@ -691,7 +912,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'This may describe completed work. Say what you intend to do next.',
       );
     if (
-      /\b(?:should|could|can|shall|do|may)\s+(?:i|we)\b|क्या.*(?:भेज|रख|पैक)|(?:पाठवू|ठेवू)\s*का/iu.test(
+      /\b(?:should|could|can|shall|do|may)\s+(?:i|we)\b|(?<![\p{L}\p{M}])क्या(?![\p{L}\p{M}]).*(?:भेज|रख|पैक)|(?:पाठवू|ठेवू)\s*का/iu.test(
         normal,
       )
     )
@@ -700,7 +921,11 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'QUESTION_NOT_INTENT',
         'This is a question about the plan. State your intended next action after it is clarified.',
       );
-    if (/\b(?:yesterday|tomorrow|last week|next week)\b|कल\b|उद्या|काल/iu.test(normal))
+    if (
+      /\b(?:yesterday|tomorrow|last week|next week)\b|(?<![\p{L}\p{M}])(?:कल|परसों|परसो|उद्या|काल|परवा)(?![\p{L}\p{M}])/iu.test(
+        normal,
+      )
+    )
       uncertain(
         'notBefore',
         'UNSUPPORTED_DATE',
@@ -719,9 +944,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'This negated action needs an explicit next-action clarification.',
       );
     if (
-      (/\b(?:not|never|without|won't|don't|can't|cannot)\b/iu.test(normal) &&
-        !prohibitedDispatch.test(normal) &&
-        !/\bnot before\b/iu.test(normal)) ||
+      testEnglishNegation(normal.replace(prohibitedDispatchAll, ' ')) ||
       unsupportedIndicNegation(normal, fragment)
     )
       uncertain(
@@ -773,7 +996,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     const quantity = reading.quantity;
 
     const unitMatch =
-      /\b(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs)\b|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे/iu.exec(
+      /\b(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs)\b|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|टुकडे|तुकडे/iu.exec(
         normal,
       );
     const unit = unitMatch ? canonicalUnit(unitMatch[0]) : undefined;
@@ -793,8 +1016,6 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     let condition: string | undefined;
     // A clock phrase ("after 3 PM", "तीन बजे के बाद") is a time, not a prerequisite.
     const timeFree = clock.cleaned;
-    const conjunction =
-      /\b(?:and|plus|as well as|along with)\b|&|(?<![\p{L}\p{M}])(?:और|तथा|एवं|आणि|व|तसेच)(?![\p{L}\p{M}])/iu;
     // A value-only answer to "What is the prerequisite?" ("address confirmed", "पता कन्फर्म").
     if (
       fragment &&
@@ -803,21 +1024,17 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       addressWord.test(normal) &&
       confirmWord.test(normal) &&
       !conjunction.test(normal) &&
-      !/\b(?:not|never|without|unconfirmed)\b/iu.test(normal) &&
+      !testEnglishNegation(normal) &&
       !indicNegation.test(normal)
     )
       condition = 'address confirmed';
-    if (
-      clock.time &&
-      /\b(?:after|past|not before)\s+\d[^,;]*?\s(?:and|plus|as well as)\s+(?!then\s)|(?:बाद|नंतर)\s+(?:और|तथा|आणि|व)\s/iu.test(
-        numeric,
-      )
-    )
+    if (clock.time && timeWithPrerequisite.test(numeric))
       uncertain(
         'condition',
         'COMPOUND_CONDITION',
         'This statement joins a time with another prerequisite. Repeat each prerequisite explicitly.',
       );
+    let conditionTail: string | undefined;
     if (gateMarker.test(normal) || conditionalMarker.test(timeFree)) {
       const prerequisiteText = validHoldSequence
         ? timeFree.replace(/(?:,\s*)?(?:and\s+)?then\s+(?:send|dispatch|release|ship)\b.*$/iu, '')
@@ -829,8 +1046,11 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         .replace(/[\s.,!?;:।'"]+$/u, '')
         .trim();
       if (tail) {
+        conditionTail = tail;
         // Every conjunct survives: "address confirmed and payment received".
         condition = canonicalCondition(tail) || undefined;
+        // A prerequisite too long to store is not one the rules can read.
+        if (condition && condition.length > 200) condition = undefined;
         if (!condition)
           uncertain(
             'condition',
@@ -840,11 +1060,18 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       } else if (tail !== undefined && clock.time) {
         /* "once it is past three" is a clock constraint, not another prerequisite */
       } else if (addressWord.test(prerequisiteText) && confirmWord.test(prerequisiteText)) {
-        if (conjunction.test(prerequisiteText))
+        if (conjunction.test(prerequisiteText) || untilFrames(normal) > 1)
           uncertain(
             'condition',
             'COMPOUND_CONDITION',
             'More than one prerequisite may be stated. Repeat each prerequisite explicitly.',
+          );
+        else if (indicUntilFrame.test(normal) && !indicUntilIdiom.test(normal))
+          // "जब तक पता कन्फर्म है" / "जोपर्यंत पत्ता कन्फर्म आहे" means "as long as", not "until".
+          uncertain(
+            'condition',
+            'UNRECOGNISED_CONDITION',
+            'This prerequisite wording is not the supported "until" form. Say until when the item is held.',
           );
         else condition = 'address confirmed';
       } else
@@ -864,11 +1091,11 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
           'AMBIGUOUS_HOLD_CONDITION',
           'It is unclear whether this condition starts or ends the hold. Say "hold until" the release prerequisite.',
         );
-      if (
-        /\b(?:until|unless|once|after|if|provided|providing|as soon as|when)\b.*\b(?:not|never|without|unconfirmed)\b/iu.test(
+      const afterGate =
+        /\b(?:until|till|unless|once|after|if|provided|providing|as soon as|when)\b(.*)$/iu.exec(
           normal,
-        )
-      )
+        )?.[1];
+      if (afterGate !== undefined && testEnglishNegation(afterGate))
         uncertain(
           'condition',
           'NEGATED_PREREQUISITE',
@@ -891,6 +1118,39 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     }
 
     const owner = statedOwner(span.text, input.items);
+
+    // Closed world: a clean claim needs every word to be accounted for by the rules.
+    if (uncertainFields.length === 0) {
+      const leftover = unexplainedWords({
+        text: timeFree,
+        items: input.items,
+        owner,
+        conditionTail,
+        addressCondition: condition === 'address confirmed',
+        clockTime: !!clock.time,
+        correction:
+          quantity !== undefined &&
+          (quantityText.match(/(?<![\p{L}\p{N}])\d+(?![\p{L}\p{N}])/gu) ?? []).length > 1,
+      });
+      if (leftover.length > 0) {
+        const gate = conditionalMarker.exec(timeFree) ?? gateMarker.exec(timeFree);
+        const at = timeFree.indexOf(leftover[0]!);
+        // A person named on the board but not in supported owner phrasing ("Tell Ravi …").
+        const ownerWords = new Set(
+          input.items.flatMap((item) => (item.owner ? normalizeText(item.owner).split(' ') : [])),
+        );
+        const words = leftover.slice(0, 4).map((word) => word.slice(0, 24));
+        uncertain(
+          leftover.some((word) => ownerWords.has(word))
+            ? 'owner'
+            : gate && gate.index < at
+              ? 'condition'
+              : 'action',
+          'UNEXPLAINED_WORDING',
+          `The local rules could not account for "${words.join(' ')}${leftover.length > 4 ? ' …' : ''}". Repeat the instruction with a supported action, time and prerequisite.`,
+        );
+      }
+    }
 
     claims.push({
       id: `${utteranceId}-claim-${claims.length + 1}`,
