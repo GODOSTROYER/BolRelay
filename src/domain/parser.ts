@@ -96,20 +96,37 @@ export function canonicalUnit(unit: string): string {
   return value;
 }
 
+const addressWord = /(address|पता|पते|पत्ता|पत्त्याची)/u;
+const confirmWord = /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u;
+/** Joins two prerequisites; each conjunct must survive canonicalisation. */
+const conditionConjunction =
+  /\s*(?:,|&|\b(?:and|as well as|plus|along with)\b|(?<![\p{L}\p{M}])(?:और|तथा|एवं|आणि|व|तसेच)(?![\p{L}\p{M}]))\s*/iu;
+
 export function canonicalCondition(condition: string): string {
-  const value = normalizeText(condition);
+  const value = normalizeNumbers(condition);
   // A negated prerequisite can never collapse to its positive counterpart.
   if (/\b(?:not|never|without|unconfirmed)\b|नहीं|नाही/iu.test(value)) return value;
-  if (
-    /(address|पता|पते|पत्ता|पत्त्याची)/u.test(value) &&
-    /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u.test(value)
-  )
-    return 'address confirmed';
-  return value
-    .replace(/\b(?:the|is|has|been|until|unless|once|only|after)\b/g, '')
-    .replace(/\b(?:approves?|approved|approval)\b/g, 'approval')
-    .replace(/\s+/g, ' ')
-    .trim();
+  // Alternatives are not a conjunction of prerequisites; keep the full wording.
+  if (/\b(?:or|either)\b|(?<![\p{L}\p{M}])(?:या|किंवा|अथवा)(?![\p{L}\p{M}])/iu.test(value))
+    return value;
+  // Every conjunct is kept: "address confirmed and payment received" never
+  // collapses to its first prerequisite. Order does not change the meaning.
+  const parts = value
+    .split(new RegExp(conditionConjunction.source, 'giu'))
+    .map((part) =>
+      addressWord.test(part) && confirmWord.test(part)
+        ? 'address confirmed'
+        : part
+            .replace(
+              /\b(?:the|is|are|has|have|been|until|unless|once|only|after|if|when|provided|providing|that|as soon as|on condition)\b/g,
+              '',
+            )
+            .replace(/\b(?:approves?|approved|approval)\b/g, 'approval')
+            .replace(/\s+/g, ' ')
+            .trim(),
+    )
+    .filter(Boolean);
+  return [...new Set(parts)].sort().join(' and ');
 }
 
 const hasToken = (text: string, token: string) =>
@@ -125,6 +142,17 @@ const prohibitedDispatch =
   /\b(?:do not|don't|will not|must not|won't|cannot|can't|never)\s+(?:send|dispatch|release|ship)\b|मत\s*भेज|नहीं\s*भेज|नाही\s*पाठव|पाठवू\s*न(?:का|ये)|भेज(?:ना|ूंगा|ेंगे)?\s*नहीं|पाठव(?:णार|ेन|ू)?\s*नाही/iu;
 const gateMarker =
   /\b(?:until|unless|once|only after|after the address|when the address)\b|जब\s*तक|होने\s*तक|पुष्टि\s*के\s*बाद|जोपर्यंत|होईपर्यंत|पुष्टी\s*झाल्यावर|पत्ता\s*कन्फर्म\s*झाल्यावर/iu;
+/** Conditional wording, tested only after a clock phrase ("after 3 PM") is removed. */
+const conditionalMarker =
+  /\b(?:until|unless|once|only after|only if|if|provided|providing|as soon as|on condition that|subject to|when|after)\b|अगर|यदि|के\s*बाद|होने\s*पर|मिलने\s*पर|तभी|तरच|(?<![\p{L}\p{M}])जर(?![\p{L}\p{M}])|झाल्यावर|झाल्यानंतर|मिळाल्यावर|मिळाल्यानंतर|नंतर|ने\s*तक|पर्यंत/iu;
+const englishConditionTail =
+  /\b(?:until|unless|once|only after|only if|if|provided(?:\s+that)?|providing(?:\s+that)?|as soon as|on condition that|subject to|when|after)\s+(.+)$/iu;
+/** A following commitment ("..., then release them") is not part of the prerequisite. */
+const commitmentAfterCondition =
+  /(?:\s*,\s*(?:(?:and|but|or|then)\s+)*|\s+(?:and|but|or|then)\s+(?:then\s+)?)(?:immediately\s+|now\s+)?(?:(?:i|we|they)\s+(?:will\s+)?)?(?:send|dispatch|release|ship|leave|hold|keep|wait|retain|pack|prepare|wrap|collect|pick\s+up|give|hand)\b.*$/iu;
+/** Exclusions ("all except J1") must never become a claim about the excluded item. */
+const exclusionMarker =
+  /\b(?:except|excepting|excluding|exclude|other than|apart from|aside from|save for|besides|not including|leaving out|leave out)\b|\b(?:all|everything|anything|both|every\s+\p{L}+)(?:\s+\p{L}+)?\s+but\b|\bbut\s+not\b|छोड़?\s*(?:कर|के)|सिवाय|सिवा|अलावा|सोडून(?!\s*(?:द्या|दे|दिल))|वगळून|वगळता|व्यतिरिक्त|खेरीज|सोडता/iu;
 
 export function actionFromText(text: string): WorkAction | undefined {
   const normal = normalizeText(text);
@@ -138,7 +166,7 @@ export function actionFromText(text: string): WorkAction | undefined {
 /** A selected item supplies a pronoun's referent, never an unrecognised name. */
 function hasOnlyImplicitObject(text: string): boolean {
   const objectPart = normalizeNumbers(text).split(
-    /\b(?:until|unless|once|only after|after|at|past|assigned to|owner is|handled by)\b|जब\s*तक|जोपर्यंत|पता|पते|पत्ता|पत्त्याची|पुष्टि|पुष्टी/iu,
+    /\b(?:until|unless|once|only after|only if|if|provided|providing|as soon as|when|after|at|past|assigned to|owner is|handled by)\b|जब\s*तक|जोपर्यंत|पता|पते|पत्ता|पत्त्याची|पुष्टि|पुष्टी/iu,
   )[0]!;
   const rest = objectPart
     .replace(
@@ -255,6 +283,18 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     const evidence = { ...span, utteranceId };
     const normal = normalizeText(span.text);
     const numeric = normalizeNumbers(normal);
+    if (exclusionMarker.test(normal)) {
+      // "Send all except J1" names J1 but means the opposite for it. Never
+      // turn the excluded item into the target; ask for an explicit list.
+      issue(
+        'UNSUPPORTED_EXCLUSION',
+        'This statement excludes some items. Name each item and its action separately; exclusions are not interpreted automatically.',
+        scope.map((item) => item.id),
+        'object',
+        evidence,
+      );
+      continue;
+    }
     const explicitIds = input.items
       .filter((item) => hasToken(normal, item.id))
       .map((item) => item.id);
@@ -472,29 +512,72 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       );
 
     let condition: string | undefined;
-    if (gateMarker.test(normal)) {
-      if (
-        /(address|पता|पते|पत्ता|पत्त्याची)/u.test(normal) &&
-        /(confirm|verif|पुष्टि|पुष्टी|कन्फर्म|सत्यापित|सही)/u.test(normal)
+    // A clock phrase ("after 3 PM", "तीन बजे के बाद") is a time, not a prerequisite.
+    const timeFree = clock.cleaned;
+    const conjunction =
+      /\b(?:and|plus|as well as|along with)\b|&|(?<![\p{L}\p{M}])(?:और|तथा|एवं|आणि|व|तसेच)(?![\p{L}\p{M}])/iu;
+    if (
+      clock.time &&
+      /\b(?:after|past|not before)\s+\d[^,;]*?\s(?:and|plus|as well as)\s+(?!then\s)|(?:बाद|नंतर)\s+(?:और|तथा|आणि|व)\s/iu.test(
+        numeric,
       )
-        condition = 'address confirmed';
-      else {
-        const prerequisiteText = validHoldSequence
-          ? normal.replace(/(?:,\s*)?(?:and\s+)?then\s+(?:send|dispatch|release|ship)\b.*$/iu, '')
-          : normal;
-        const tail = /\b(?:until|unless|once|only after)\s+(.+)$/iu.exec(prerequisiteText)?.[1];
-        if (tail && !(clock.time && /^(?:it\s+is\s+)?past\b/iu.test(tail)))
-          condition = canonicalCondition(tail);
-        else if (tail && clock.time) {
-          /* "once it is past three" is a clock constraint, not another prerequisite */
-        } else
+    )
+      uncertain(
+        'condition',
+        'COMPOUND_CONDITION',
+        'This statement joins a time with another prerequisite. Repeat each prerequisite explicitly.',
+      );
+    if (gateMarker.test(normal) || conditionalMarker.test(timeFree)) {
+      const prerequisiteText = validHoldSequence
+        ? timeFree.replace(/(?:,\s*)?(?:and\s+)?then\s+(?:send|dispatch|release|ship)\b.*$/iu, '')
+        : timeFree;
+      const tail = englishConditionTail
+        .exec(prerequisiteText)?.[1]
+        ?.replace(commitmentAfterCondition, '')
+        .replace(/^(?:it\s+is|it's)(?![\p{L}\p{N}])/iu, '')
+        .replace(/[\s.,!?;:।'"]+$/u, '')
+        .trim();
+      if (tail) {
+        // Every conjunct survives: "address confirmed and payment received".
+        condition = canonicalCondition(tail) || undefined;
+        if (!condition)
           uncertain(
             'condition',
             'UNRECOGNISED_CONDITION',
             'Repeat the prerequisite explicitly. Local rules could not identify it.',
           );
-      }
-      if (/\b(?:until|unless|once|after)\b.*\b(?:not|never|without|unconfirmed)\b/iu.test(normal))
+      } else if (tail !== undefined && clock.time) {
+        /* "once it is past three" is a clock constraint, not another prerequisite */
+      } else if (addressWord.test(prerequisiteText) && confirmWord.test(prerequisiteText)) {
+        if (conjunction.test(prerequisiteText))
+          uncertain(
+            'condition',
+            'COMPOUND_CONDITION',
+            'More than one prerequisite may be stated. Repeat each prerequisite explicitly.',
+          );
+        else condition = 'address confirmed';
+      } else
+        uncertain(
+          'condition',
+          'UNRECOGNISED_CONDITION',
+          'Repeat the prerequisite explicitly. Local rules could not identify it.',
+        );
+      // "Hold only if X" / "hold once X" gates the hold itself, not its release.
+      if (
+        action === 'hold' &&
+        condition !== undefined &&
+        !/\b(?:until|unless|till)\b|जब\s*तक|ने\s*तक|तब\s*तक|पर्यंत/iu.test(normal)
+      )
+        uncertain(
+          'condition',
+          'AMBIGUOUS_HOLD_CONDITION',
+          'It is unclear whether this condition starts or ends the hold. Say "hold until" the release prerequisite.',
+        );
+      if (
+        /\b(?:until|unless|once|after|if|provided|providing|as soon as|when)\b.*\b(?:not|never|without|unconfirmed)\b/iu.test(
+          normal,
+        )
+      )
         uncertain(
           'condition',
           'NEGATED_PREREQUISITE',
