@@ -1,5 +1,12 @@
-import { clarificationField } from '../domain/engine';
-import type { ClaimField, Finding, HandoverItem, ItemComparison, Language } from '../domain/types';
+import { clarificationAttempts, clarificationField } from '../domain/engine';
+import type {
+  ClaimField,
+  Finding,
+  HandoverItem,
+  HandoverState,
+  ItemComparison,
+  Language,
+} from '../domain/types';
 
 const copy = {
   heading: [
@@ -94,6 +101,7 @@ const copy = {
   clarify: ['Clarify read-back', 'योजना स्पष्ट करें', 'योजना स्पष्ट करा'],
   clarifyTitle: ['A detail needs clarification', 'एक बात स्पष्ट करनी है', 'एक बाब स्पष्ट करायची आहे'],
   confirmed: ['Confirmed', 'पुष्टि हो गई', 'पुष्टी झाली'],
+  nextItem: ['Next', 'अगला', 'पुढे'],
   confirm: ['Confirm', 'पुष्टि करें', 'पुष्टी करा'],
   confirmAll: ['Confirm handover', 'पूरी योजना की पुष्टि करें', 'संपूर्ण योजनेची पुष्टी करा'],
   matches: ['Matches', 'मेल खाता है', 'जुळते'],
@@ -288,6 +296,22 @@ export function clarificationQuestion(
   if (result.stale || !field)
     return `${item.label}. ${ui(language, result.stale ? 'updated' : 'readyToSpeak')}. ${ui(language, 'inputHint')}`;
   return `${item.label}. ${questions[field][language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0]}`;
+}
+
+/** The question currently shown for an item: reworded once it was answered without resolving it. */
+export function currentQuestion(
+  state: HandoverState,
+  item: HandoverItem,
+  result: ItemComparison,
+  language: Language,
+): string {
+  const field = clarificationField(result);
+  const { attempts, bareReply } = field
+    ? clarificationAttempts(state, item.id)
+    : { attempts: 0, bareReply: false };
+  return field && attempts > 0
+    ? retryQuestion(item, field, bareReply, language)
+    : clarificationQuestion(item, result, language);
 }
 
 /**

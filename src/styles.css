@@ -755,6 +755,11 @@ strong {
   border-radius: 6px;
   margin-bottom: 10px;
 }
+.scope-note [data-testid='scope-question'] {
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}
 .scope-note button {
   display: grid;
   place-items: center;
@@ -2883,8 +2888,12 @@ strong {
   .guided-workspace .role-tabs {
     margin-top: 0;
   }
+  /* Reserve the sticky bar and any on-screen keyboard when the field scrolls into view. */
   .guided-workspace .composer textarea {
-    scroll-margin-bottom: 84px;
+    scroll-margin-bottom: calc(84px + var(--keyboard-inset, 0px));
+  }
+  .guided-workspace .composer {
+    margin-bottom: var(--keyboard-inset, 0px);
   }
   .guided-workspace .participant-row {
     margin: 12px 0 10px;
