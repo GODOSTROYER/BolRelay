@@ -16,6 +16,7 @@ import {
   splitClauses,
   timeFromClause,
 } from '../src/domain/parser.ts';
+import { isCriticalIssue } from '../src/domain/rulesVersion.ts';
 
 export const extractionRequestSchema = z
   .object({
@@ -299,30 +300,7 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
     const criticalIssues = [...local.issues, ...wholeSource.issues].filter(
       (issue) =>
         (issue.itemIds.length === 0 || issue.itemIds.some((id) => claim.itemIds.includes(id))) &&
-        ([
-          'UNKNOWN_OBJECT_IDENTIFIER',
-          'OUTSIDE_CLARIFICATION_SCOPE',
-          'COMPETING_ACTIONS',
-          'AMBIGUOUS_TIME',
-          'UNSUPPORTED_BEFORE_TIME',
-          'NEGATED_PREREQUISITE',
-          'UNHANDLED_NEGATION',
-          'UNSUPPORTED_NEGATION',
-          'COMPLETED_ACTION',
-          'QUESTION_NOT_INTENT',
-          'UNCERTAIN_INTENT',
-          'UNSUPPORTED_DATE',
-          'NEGATIVE_QUANTITY',
-          'QUALIFIED_QUANTITY',
-          'UNSUPPORTED_QUANTITY_EXPRESSION',
-          'AMBIGUOUS_QUANTITY',
-          'INVALID_QUANTITY',
-          'UNSUPPORTED_EXCLUSION',
-          'COMPOUND_CONDITION',
-          'AMBIGUOUS_HOLD_CONDITION',
-        ].includes(issue.code) ||
-          (issue.code === 'UNRECOGNISED_OBJECT' &&
-            /\b(?:send|dispatch|release|ship|hold|pack|collect)\b/iu.test(issue.evidence.text))),
+        isCriticalIssue(issue),
     );
     if (criticalIssues.some((issue) => !claim.uncertainFields.includes(issue.field)))
       throw new Error(

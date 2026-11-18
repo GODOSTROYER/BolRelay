@@ -9,7 +9,7 @@ import type { ParseIssue, ParsedClaim } from './types';
  * stamp is treated as version 0 (outdated). See `revalidation.ts` for how saved
  * approvals are rechecked when state is loaded, imported or restored.
  */
-export const INTERPRETATION_RULES_VERSION = 1;
+export const INTERPRETATION_RULES_VERSION = 2;
 
 /** Stamp a newly produced interpretation with the rules that produced or validated it. */
 export function stampInterpretation<T extends object>(parsed: T): T & { rulesVersion: number } {
@@ -17,8 +17,8 @@ export function stampInterpretation<T extends object>(parsed: T): T & { rulesVer
 }
 
 /**
- * Local issue codes that the model adapter must never suppress (mirrors the
- * critical guard in `server/model.ts`). Used offline to recheck stored model
+ * Local issue codes that the model adapter must never suppress. This is the
+ * single list used by the critical guard in `server/model.ts`. Used offline to recheck stored model
  * interpretations, because a model cannot be re-run from saved state.
  */
 export const CRITICAL_INTERPRETATION_ISSUE_CODES: readonly string[] = [
@@ -39,6 +39,9 @@ export const CRITICAL_INTERPRETATION_ISSUE_CODES: readonly string[] = [
   'UNSUPPORTED_QUANTITY_EXPRESSION',
   'AMBIGUOUS_QUANTITY',
   'INVALID_QUANTITY',
+  'UNSUPPORTED_EXCLUSION',
+  'COMPOUND_CONDITION',
+  'AMBIGUOUS_HOLD_CONDITION',
 ];
 
 export function isCriticalIssue(issue: ParseIssue): boolean {
