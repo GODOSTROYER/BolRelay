@@ -4,7 +4,7 @@ import {
   languageSchema,
   parsedTranscriptSchema,
 } from '../src/domain/schema.ts';
-import type { ClaimField, Evidence, ParsedTranscript } from '../src/domain/types.ts';
+import type { Evidence, ParsedTranscript } from '../src/domain/types.ts';
 import {
   actionFromText,
   canonicalCondition,
@@ -18,6 +18,7 @@ import {
 } from '../src/domain/parser.ts';
 import { isCriticalIssue } from '../src/domain/rulesVersion.ts';
 import { allItemsMarker } from '../src/domain/markers.ts';
+import { misattributesLocalStatement, modelClaimConflict } from '../src/domain/modelGuard.ts';
 
 export const extractionRequestSchema = z
   .object({
@@ -324,50 +325,19 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
     // this quote locally, a field the local rules mark uncertain must stay uncertain, and
     // a stated value must equal every local value for the item (an omitted time,
     // prerequisite or owner would otherwise read as agreement with a plan that has none).
-    const localClaims = local.claims.filter((candidate) =>
-      candidate.itemIds.some((id) => claim.itemIds.includes(id)),
+    // Shared with offline revalidation of stored model readings.
+    const conflict = modelClaimConflict(
+      claim,
+      local.claims.filter((candidate) =>
+        candidate.itemIds.some((id) => claim.itemIds.includes(id)),
+      ),
     );
-    if (
-      !claim.uncertainFields.includes('object') &&
-      claim.itemIds.some((id) => !localClaims.some((candidate) => candidate.itemIds.includes(id)))
-    )
+    if (conflict === 'object')
       throw new Error('Model object is not the item the source quote names.');
-    const sameItems = (ids: string[]) =>
-      ids.length === claim.itemIds.length && ids.every((id) => claim.itemIds.includes(id));
-    const reading = (
-      field: Exclude<ClaimField, 'object'>,
-      candidate: { itemIds: string[] } & Partial<Record<typeof field, unknown>>,
-    ) => {
-      const value = candidate[field];
-      if (value === undefined || value === null) return undefined;
-      if (field === 'quantity')
-        return sameItems(candidate.itemIds) ? String(value) : '(other items)';
-      if (field === 'unit') return canonicalUnit(String(value));
-      if (field === 'condition')
-        return canonicalCondition(String(value)) || normalizeText(String(value));
-      if (field === 'owner') return normalizeText(String(value));
-      return String(value);
-    };
-    for (const field of [
-      'action',
-      'quantity',
-      'unit',
-      'notBefore',
-      'condition',
-      'owner',
-    ] as const) {
-      if (claim.uncertainFields.includes(field)) continue;
-      const stated = reading(field, claim);
-      const heard = localClaims.map((candidate) => reading(field, candidate));
-      if (
-        localClaims.some((candidate) => candidate.uncertainFields.includes(field)) ||
-        heard.some((value) => value !== undefined && value !== stated) ||
-        (stated !== undefined && !heard.includes(stated))
-      )
-        throw new Error(
-          `Model ${({ notBefore: 'time', condition: 'prerequisite' } as Record<string, string>)[field] ?? field} differs from the local reading of its source.`,
-        );
-    }
+    if (conflict)
+      throw new Error(
+        `Model ${({ notBefore: 'time', condition: 'prerequisite' } as Record<string, string>)[conflict] ?? conflict} differs from the local reading of its source.`,
+      );
     return {
       ...claim,
       id: `${input.utteranceId}-claim-${index + 1}`,
@@ -390,32 +360,14 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
   }
   // Every clause the local rules attribute to an item must be quoted by a claim or
   // issue for that item; a provider may not park it in an issue for another item.
-  const lead = input.text.length - input.text.trimStart().length;
-  const coverage = new Map<string, Uint8Array>();
-  const coveredFor = (id: string) => {
-    if (!coverage.has(id)) {
-      const marks = new Uint8Array(input.text.length);
-      for (const part of [
-        ...claims.filter((claim) => claim.itemIds.includes(id)),
-        ...issues.filter((issue) => issue.itemIds.length === 0 || issue.itemIds.includes(id)),
-      ])
-        marks.fill(1, part.evidence.start, part.evidence.end);
-      coverage.set(id, marks);
-    }
-    return coverage.get(id)!;
-  };
-  for (const heard of wholeSource.claims)
-    for (const id of heard.itemIds.filter((candidate) => allowed.has(candidate))) {
-      const marks = coveredFor(id);
-      for (let at = heard.evidence.start; at < heard.evidence.end; at++)
-        if (
-          /[\p{L}\p{N}]/u.test(heard.evidence.text[at - heard.evidence.start]!) &&
-          !marks[at + lead]
-        )
-          throw new Error(
-            'Model evidence attributes part of a statement about an item to a different item.',
-          );
-    }
+  if (
+    misattributesLocalStatement(input.text, wholeSource.claims, claims, issues, (id) =>
+      allowed.has(id),
+    )
+  )
+    throw new Error(
+      'Model evidence attributes part of a statement about an item to a different item.',
+    );
   return parsedTranscriptSchema.parse({
     utteranceId: input.utteranceId,
     text: input.text,

@@ -1,5 +1,5 @@
 import { canonicalCondition, canonicalUnit, normalizeText, parseTranscript } from './parser';
-import { revalidateInterpretations } from './revalidation';
+import { revalidateInterpretations, type RevalidationOptions } from './revalidation';
 import { stampInterpretation } from './rulesVersion';
 import {
   handoverItemSchema,
@@ -769,7 +769,7 @@ export function completeShortAnswer(
     const source = state.utterances.find(
       (utterance) => utterance.utteranceId === reference?.utteranceId,
     );
-    if (!source) return parsed;
+    if (source?.parser !== 'local-rules') return parsed;
     return (
       mergeShortAnswer(
         parsed,
@@ -786,6 +786,10 @@ export function completeShortAnswer(
   const result = compareHandover(state).find((entry) => entry.itemId === item.id)!;
   if (
     !readback ||
+    // A model reading cannot be re-derived offline, so a merge on top of it
+    // could never be revalidated; the answer stands alone instead.
+    state.utterances.find((utterance) => utterance.utteranceId === readback.utteranceId)?.parser !==
+      'local-rules' ||
     readback.itemRevision !== item.revision ||
     parsed.itemRevisions[item.id] !== item.revision ||
     clarificationField(result) !== parsed.answerField
@@ -1130,8 +1134,37 @@ export function removeItem(state: HandoverState, itemId: string): HandoverState 
   );
 }
 
-/** Validate untrusted local/imported JSON, including cross-record consistency. */
-export function restoreHandover(value: unknown): HandoverState {
+export interface RestoreOptions extends RevalidationOptions {
+  /**
+   * `false` only checks shape and cross-record integrity, e.g. to tell whether
+   * saved data is readable or that an already revalidated in-memory state is
+   * still schema-valid. Trust boundaries (load, import, restore) keep the default.
+   */
+  revalidate?: boolean;
+}
+
+/**
+ * Validate untrusted local/imported JSON, including cross-record consistency,
+ * then recheck saved interpretations against the current rules. Pass
+ * `origin: 'import'` for files from outside this browser and `previous` for an
+ * in-app change of an already restored state (see `revalidateInterpretations`).
+ */
+export function restoreHandover(value: unknown, options: RestoreOptions = {}): HandoverState {
+  const restored = validateAndRevalidate(value, options);
+  if (options.revalidate !== false) restoredStates.add(restored);
+  return restored;
+}
+
+// States returned by a revalidating restore. App state is never mutated in
+// place, so saving such an object again needs no second validation.
+const restoredStates = new WeakSet<HandoverState>();
+
+/** True for an object returned by `restoreHandover` with revalidation. */
+export function isRestoredHandover(state: HandoverState): boolean {
+  return restoredStates.has(state);
+}
+
+function validateAndRevalidate(value: unknown, options: RestoreOptions): HandoverState {
   const result = handoverStateSchema.safeParse(value);
   if (!result.success)
     throw new DomainError('INVALID_BACKUP', 'This file is not a supported BolRelay handover.');
@@ -1291,8 +1324,9 @@ export function restoreHandover(value: unknown): HandoverState {
       return source.readbackMode === undefined;
     })
     .map(([id]) => id);
+  if (options.revalidate === false) return state;
   // Saved approvals are then rechecked against the current interpretation rules.
-  if (legacyItemIds.length === 0) return revalidateInterpretations(clone(state));
+  if (legacyItemIds.length === 0) return revalidateInterpretations(clone(state), options);
 
   const migrated = clone(state);
   for (const id of legacyItemIds) {
@@ -1318,6 +1352,7 @@ export function restoreHandover(value: unknown): HandoverState {
           createdAt: at,
         })
       : migrated,
+    options,
   );
 }
 
