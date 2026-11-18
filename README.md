@@ -146,7 +146,7 @@ See [architecture](docs/ARCHITECTURE.md) for state invariants and design decisio
 
 ## Competition preparation
 
-This is a preparatory prototype for the Scaler × Wispr event. The published schedule says a common Round 2 problem is released on 27 November 2026. Reconcile the final scope and eligibility of advance work with the released rules. This repository makes no claim of completed competition submission, real-user validation, or recorded Wispr Flow development usage.
+This is a preparatory prototype for **India Runs on Voice**, the Scaler × Wispr Flow hackathon. Round 2 gives every team the same problem statement on 27 November 2026, so this repository is Round 1 material and a kit of reusable parts, not a finished Round 2 entry. See [the requirements and fit notes](docs/HACKATHON.md). This repository makes no claim of completed competition submission, real-user validation, or recorded Wispr Flow development usage.
 
 ## Next validation priorities
 

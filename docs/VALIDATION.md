@@ -104,7 +104,7 @@ Verified locally on 18 November 2026 (Node.js 22, Playwright Chromium) at the me
 | Chromium              | **59 passed**                                                                                                |
 | Held-out evaluation   | 0/94 safety failures; 32/97 cases strict, 50/97 lenient; 62/123 false alarms (`npx tsx eval/heldout/run.ts`) |
 
-GitHub Actions runs on `main` and pull requests only, so this branch has not yet been verified in CI. The held-out set was written by an AI model from the specification without reading the parser; one case (a Hindi completed-work statement) informed a fix and is no longer unseen. It is not native-speaker labelling. Baseline on the original code was 4/94 safety failures and 63/123 false alarms.
+The same checks passed in GitHub Actions on [pull request #2](https://github.com/GODOSTROYER/BolRelay/pull/2) ([run 44349160534](https://github.com/GODOSTROYER/BolRelay/actions/runs/44349160534)). The held-out set was written by an AI model from the specification without reading the parser; one case (a Hindi completed-work statement) informed a fix and is no longer unseen. It is not native-speaker labelling. Baseline on the original code was 4/94 safety failures and 63/123 false alarms.
 
 Remaining limits: the rule grammar is not closed (each review round found new phrasing classes; unrecognised wording now falls to uncertainty, but combinations of individually supported words can still change meaning); about half of correct held-out read-backs are flagged; Devanagari and Latin spellings of the same owner name do not match; mobile behaviour was verified only in viewport emulation; microphone capture, speech recognition, live model quality and worker benefit remain unmeasured.
 
