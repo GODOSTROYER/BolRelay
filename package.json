@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:production": "node scripts/smoke-production.mjs",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "eval": "tsx eval/heldout/run.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.5",
