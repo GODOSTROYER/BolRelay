@@ -1,3 +1,4 @@
+import { mergeShortAnswer } from './engine';
 import { canonicalCondition, canonicalUnit, normalizeText, parseTranscript } from './parser';
 import { INTERPRETATION_RULES_VERSION, suppressesCriticalIssue } from './rulesVersion';
 import type {
@@ -74,7 +75,30 @@ export function revalidateInterpretations(state: HandoverState): HandoverState {
         ...(utterance.role === 'incoming' && utterance.scopeItemIds
           ? { scopeItemIds: [...utterance.scopeItemIds] }
           : {}),
+        ...(utterance.answerField ? { answerField: utterance.answerField } : {}),
       });
+      // A short answer ("8", "after 3 PM") was completed from the worker's own
+      // earlier statement. Re-derive that statement under the current rules too,
+      // then apply the same merge, so an unchanged chain compares equal.
+      const reference = utterance.claims.find((claim) => claim.basis)?.basis;
+      if (reference) {
+        reparsed.set(utterance.utteranceId, null); // cycle guard
+        const basisUtterance = source(reference.utteranceId);
+        const basis = basisUtterance ? reparse(basisUtterance) : null;
+        const itemId = utterance.scopeItemIds?.[0];
+        if (!basis || !itemId || utterance.scopeItemIds?.length !== 1)
+          throw new Error('Short-answer basis is unavailable.');
+        result =
+          mergeShortAnswer(
+            result,
+            itemId,
+            basis.utteranceId,
+            basis.claims.filter((claim) => claim.itemIds.includes(itemId)),
+            basis.issues.filter(
+              (issue) => issue.itemIds.length === 0 || issue.itemIds.includes(itemId),
+            ),
+          ) ?? null;
+      }
     } catch {
       result = null;
     }

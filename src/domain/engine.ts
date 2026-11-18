@@ -8,6 +8,7 @@ import {
   parsedTranscriptSchema,
 } from './schema';
 import type {
+  ClaimField,
   ComparisonStatus,
   CreateHandoverInput,
   Evidence,
@@ -19,6 +20,7 @@ import type {
   ItemInput,
   ItemPatch,
   Language,
+  ParseIssue,
   ParsedClaim,
   ParsedTranscript,
   ParticipantRole,
@@ -152,6 +154,8 @@ function validateParsed(parsed: ParsedTranscript, items: HandoverItem[]) {
       (result.data.readbackMode !== undefined || result.data.scopeItemIds !== undefined)) ||
     (result.data.readbackMode === 'full' && result.data.scopeItemIds !== undefined) ||
     (result.data.readbackMode === 'targeted' && !result.data.scopeItemIds?.length) ||
+    (result.data.answerField !== undefined &&
+      (result.data.readbackMode !== 'targeted' || result.data.scopeItemIds?.length !== 1)) ||
     (result.data.scopeItemIds &&
       (new Set(result.data.scopeItemIds).size !== result.data.scopeItemIds.length ||
         result.data.scopeItemIds.some((id) => !ids.has(id))))
@@ -167,6 +171,19 @@ function validateParsed(parsed: ParsedTranscript, items: HandoverItem[]) {
     claimIds.add(claim.id);
     if (new Set(claim.itemIds).size !== claim.itemIds.length)
       throw new DomainError('DUPLICATE_REFERENCE', 'A claim cannot count the same item twice.');
+    if (
+      claim.basis &&
+      (!result.data.answerField ||
+        claim.itemIds.length !== 1 ||
+        claim.itemIds[0] !== result.data.scopeItemIds?.[0] ||
+        claim.basis.utteranceId === result.data.utteranceId ||
+        claim.basis.fields.includes('object') ||
+        new Set(claim.basis.fields).size !== claim.basis.fields.length)
+    )
+      throw new DomainError(
+        'INVALID_ANSWER_BASIS',
+        'A short answer can only complete an earlier read-back of the selected item.',
+      );
   }
   for (const part of [...result.data.claims, ...result.data.issues]) {
     if (part.itemIds.some((id) => !ids.has(id)))
@@ -208,12 +225,31 @@ function finding(
   };
 }
 
+function basisEvidence(state: HandoverState, claim: ParsedClaim): Evidence[] {
+  const chain: Evidence[] = [];
+  const seen = new Set<string>();
+  let current = claim;
+  while (current.basis && !seen.has(current.basis.utteranceId)) {
+    seen.add(current.basis.utteranceId);
+    const reference = current.basis;
+    const next = state.utterances
+      .find((utterance) => utterance.utteranceId === reference.utteranceId)
+      ?.claims.find((candidate) => candidate.id === reference.claimId);
+    if (!next) break;
+    chain.unshift(next.evidence);
+    current = next;
+  }
+  return chain;
+}
+
 /** Compare only explicit facts; missing and uncertain information never become agreement. */
 export function compareHandover(state: HandoverState): ItemComparison[] {
   return state.items.map((item) => {
     const readback = state.readbacks[item.id];
     const stale = !!readback && readback.itemRevision !== item.revision;
-    const evidence = readback?.claims.map((claim) => claim.evidence) ?? [];
+    // A short answer is shown together with the earlier statements it completes.
+    const evidence =
+      readback?.claims.flatMap((claim) => [...basisEvidence(state, claim), claim.evidence]) ?? [];
     const findings: Finding[] = [];
     if (!readback || stale) {
       findings.push(
@@ -543,6 +579,224 @@ export function compareHandover(state: HandoverState): ItemComparison[] {
   });
 }
 
+/** The single detail a clarification question asks about; none for agreement or a changed plan. */
+export function clarificationField(result: ItemComparison): ClaimField | undefined {
+  return result.stale || result.status === 'agreement' ? undefined : result.findings[0]?.field;
+}
+
+/**
+ * How often the current question for an item has already been answered without
+ * resolving it, within the latest run of targeted replies for its current revision.
+ */
+export function clarificationAttempts(
+  state: HandoverState,
+  itemId: string,
+): { attempts: number; bareReply: boolean } {
+  const item = state.items.find((candidate) => candidate.id === itemId);
+  const result = item && compareHandover(state).find((entry) => entry.itemId === itemId);
+  const field = result && clarificationField(result);
+  let attempts = 0;
+  let bareReply: boolean | undefined;
+  if (!item || !field) return { attempts, bareReply: false };
+  for (const utterance of [...state.utterances].reverse()) {
+    if (utterance.role !== 'incoming') continue;
+    const targeted = utterance.readbackMode === 'targeted';
+    if (targeted && !utterance.scopeItemIds?.includes(itemId)) continue;
+    if (
+      !targeted ||
+      utterance.scopeItemIds?.length !== 1 ||
+      utterance.itemRevisions[itemId] !== item.revision
+    )
+      break;
+    if (utterance.answerField !== field) continue;
+    attempts++;
+    bareReply ??= utterance.issues.some((issue) => issue.code === 'BARE_ACKNOWLEDGEMENT');
+  }
+  return { attempts, bareReply: !!bareReply };
+}
+
+const valueFields = ['action', 'quantity', 'unit', 'notBefore', 'condition', 'owner'] as const;
+/** Details a short answer may supply for each clarification question. */
+const answerableFields: Record<ClaimField, ClaimField[]> = {
+  object: [],
+  quantity: ['quantity', 'unit'],
+  unit: ['unit', 'quantity'],
+  action: ['action', 'condition', 'notBefore'],
+  notBefore: ['notBefore'],
+  condition: ['condition'],
+  owner: ['owner'],
+};
+
+/** Every field the answer did not supply is unchanged from the earlier claim it completes. */
+function inheritsFrom(claim: ParsedClaim, basis: ParsedClaim): boolean {
+  const fields = claim.basis?.fields ?? [];
+  return (
+    claim.itemIds.length === 1 &&
+    stable(basis.itemIds) === stable(claim.itemIds) &&
+    (['object', ...valueFields] as const).every(
+      (field) =>
+        fields.includes(field) ||
+        ((field === 'object' || stable(claim[field]) === stable(basis[field])) &&
+          claim.uncertainFields.includes(field) === basis.uncertainFields.includes(field)),
+    )
+  );
+}
+
+/** Exported for revalidation, which re-derives stored short answers under current rules. */
+export function mergeShortAnswer(
+  parsed: ParsedTranscript,
+  itemId: string,
+  basisUtteranceId: string,
+  basisClaims: ParsedClaim[],
+  basisIssues: ParseIssue[],
+): ParsedTranscript | undefined {
+  const allowed = answerableFields[parsed.answerField!];
+  const basis = basisClaims[0];
+  const answer = parsed.claims[0];
+  const bare = parsed.issues.find((issue) => issue.code === 'BARE_ACKNOWLEDGEMENT');
+  if (
+    !allowed.length ||
+    basisClaims.length !== 1 ||
+    !basis ||
+    stable(basis.itemIds) !== stable([itemId]) ||
+    parsed.claims.length > 1 ||
+    (!answer && !bare) ||
+    (answer && (stable(answer.itemIds) !== stable([itemId]) || answer.basis)) ||
+    answer?.uncertainFields.includes('object') ||
+    // Earlier uncertainty must stay visible unless this answer addresses it.
+    basisIssues.some(
+      (issue) =>
+        !allowed.includes(issue.field) &&
+        !(
+          stable(issue.evidence) === stable(basis.evidence) &&
+          basis.uncertainFields.includes(issue.field)
+        ),
+    )
+  )
+    return undefined;
+  const fragment = !!answer && !answer.action && !answer.uncertainFields.includes('action');
+  const fields: ClaimField[] = [];
+  const otherFields: ClaimField[] = [];
+  for (const field of valueFields) {
+    if (!answer || (answer[field] === undefined && !answer.uncertainFields.includes(field)))
+      continue;
+    if (allowed.includes(field)) fields.push(field);
+    else if (
+      answer[field] !== undefined &&
+      !answer.uncertainFields.includes(field) &&
+      !basis.uncertainFields.includes(field) &&
+      stable(answer[field]) === stable(basis[field])
+    )
+      continue; // An unchanged restatement adds nothing.
+    else if (fragment) otherFields.push(field);
+    else return undefined; // A different full statement replaces the earlier one.
+  }
+  const evidence = answer?.evidence ?? bare!.evidence;
+  const merged: ParsedClaim = {
+    id: answer?.id ?? `${parsed.utteranceId}-claim-1`,
+    itemIds: [itemId],
+    uncertainFields: [],
+    evidence,
+    basis: {
+      utteranceId: basisUtteranceId,
+      claimId: basis.id,
+      fields: [...fields, ...otherFields],
+    },
+  };
+  for (const field of valueFields) {
+    const source = fields.includes(field)
+      ? answer
+      : otherFields.includes(field)
+        ? undefined
+        : basis;
+    if (source?.[field] !== undefined) Object.assign(merged, { [field]: source[field] });
+  }
+  for (const field of ['object', ...valueFields] as const)
+    if (
+      otherFields.includes(field) ||
+      (fields.includes(field)
+        ? answer!.uncertainFields.includes(field)
+        : basis.uncertainFields.includes(field))
+    )
+      merged.uncertainFields.push(field);
+  const issues = [...parsed.issues];
+  // A detail outside the question is neither accepted nor allowed to stand unchallenged.
+  for (const field of otherFields)
+    issues.push({
+      code: 'ANSWER_FOR_OTHER_DETAIL',
+      message: 'This reply states a different detail than the one asked. Restate it for this item.',
+      itemIds: [itemId],
+      field,
+      evidence,
+    });
+  if (!bare && fields.length === 0 && otherFields.length === 0)
+    issues.push({
+      code: 'NO_ANSWER_VALUE',
+      message: 'This reply does not state the detail that was asked. Say the value itself.',
+      itemIds: [itemId],
+      field: parsed.answerField!,
+      evidence,
+    });
+  return { ...parsed, claims: [merged], issues };
+}
+
+/**
+ * Completes a short single-item answer ("8", "after 3 PM") with the incoming
+ * worker's own current read-back of that item. Only the asked detail comes from
+ * the answer; nothing is ever taken from the expected plan. Anything that cannot
+ * be merged safely is returned unchanged and replaces the item's read-back as before.
+ */
+export function completeShortAnswer(
+  state: HandoverState,
+  parsed: ParsedTranscript,
+): ParsedTranscript {
+  const itemId = parsed.scopeItemIds?.length === 1 ? parsed.scopeItemIds[0]! : undefined;
+  const item = state.items.find((candidate) => candidate.id === itemId);
+  if (
+    parsed.role !== 'incoming' ||
+    parsed.readbackMode === 'full' ||
+    !parsed.answerField ||
+    !item ||
+    parsed.claims.some((claim) => claim.basis)
+  )
+    return parsed;
+  const existing = state.utterances.find(
+    (utterance) => utterance.utteranceId === parsed.utteranceId,
+  );
+  if (existing) {
+    // A retried request is completed exactly as it was first recorded.
+    const reference = existing.claims.find((claim) => claim.basis)?.basis;
+    const source = state.utterances.find(
+      (utterance) => utterance.utteranceId === reference?.utteranceId,
+    );
+    if (!source) return parsed;
+    return (
+      mergeShortAnswer(
+        parsed,
+        item.id,
+        source.utteranceId,
+        source.claims.filter((claim) => claim.itemIds.includes(item.id)),
+        source.issues.filter(
+          (issue) => issue.itemIds.length === 0 || issue.itemIds.includes(item.id),
+        ),
+      ) ?? parsed
+    );
+  }
+  const readback = state.readbacks[item.id];
+  const result = compareHandover(state).find((entry) => entry.itemId === item.id)!;
+  if (
+    !readback ||
+    readback.itemRevision !== item.revision ||
+    parsed.itemRevisions[item.id] !== item.revision ||
+    clarificationField(result) !== parsed.answerField
+  )
+    return parsed;
+  return (
+    mergeShortAnswer(parsed, item.id, readback.utteranceId, readback.claims, readback.issues) ??
+    parsed
+  );
+}
+
 /** Rejects stale or ungrounded extraction; records independent incoming intent. */
 export function recordReadback(
   state: HandoverState,
@@ -608,6 +862,21 @@ export function recordReadback(
         'The plan changed while this recording was being processed. Review the current instruction and record again.',
       );
   }
+  for (const claim of parsed.claims) {
+    if (!claim.basis) continue;
+    const id = claim.itemIds[0]!;
+    const readback = state.readbacks[id];
+    const basis =
+      readback?.utteranceId === claim.basis.utteranceId &&
+      readback.itemRevision === state.items.find((item) => item.id === id)!.revision
+        ? readback.claims.find((candidate) => candidate.id === claim.basis!.claimId)
+        : undefined;
+    if (!basis || !inheritsFrom(claim, basis))
+      throw new DomainError(
+        'INVALID_ANSWER_BASIS',
+        'This short answer no longer matches the current read-back. Explain the plan for this item again.',
+      );
+  }
   const at = validTimestamp(options.at ?? now());
   if (
     Date.parse(at) < Date.parse(state.createdAt) ||
@@ -670,9 +939,10 @@ export function submitReadback(
           items: state.items,
           utteranceId: options.utteranceId,
           scopeItemIds: options.scopeItemIds,
+          ...(options.answerField ? { answerField: options.answerField } : {}),
         })
       : textOrParsed;
-  return recordReadback(state, parsed, {
+  return recordReadback(state, completeShortAnswer(state, parsed), {
     at: options.at,
     mode: options.mode,
     scopeItemIds: options.scopeItemIds,
@@ -883,9 +1153,28 @@ export function restoreHandover(value: unknown): HandoverState {
     ...ids,
     ...state.events.flatMap((event) => event.before?.map((item) => item.id) ?? []),
   ]);
-  for (const utterance of state.utterances) {
+  for (const [index, utterance] of state.utterances.entries()) {
     const historicItems = [...historicIds].map((id) => ({ id }) as HandoverItem);
     validateParsed(utterance, historicItems);
+    for (const claim of utterance.claims) {
+      if (!claim.basis) continue;
+      const id = claim.itemIds[0]!;
+      const source = state.utterances
+        .slice(0, index)
+        .find((candidate) => candidate.utteranceId === claim.basis!.utteranceId);
+      const basis = source?.claims.find((candidate) => candidate.id === claim.basis!.claimId);
+      if (
+        !source ||
+        source.role !== 'incoming' ||
+        source.itemRevisions[id] !== utterance.itemRevisions[id] ||
+        !basis ||
+        !inheritsFrom(claim, basis)
+      )
+        throw new DomainError(
+          'INVALID_BACKUP',
+          'A short answer does not match the earlier read-back it completes.',
+        );
+    }
   }
   for (const item of state.items) {
     if (item.evidenceFields?.length && item.evidence.length === 0)

@@ -1,7 +1,11 @@
 import { ArrowRight, Check, CircleHelp } from 'lucide-react';
+import { clarificationAttempts, clarificationField } from '../domain/engine';
 import type { HandoverState, ItemComparison, Language } from '../domain/types';
-import { clarificationQuestion, describeInstruction, ui } from '../lib/language';
+import { clarificationQuestion, describeInstruction, retryQuestion, ui } from '../lib/language';
 import { SpeakButton } from './SpeakButton';
+
+/** After this many unresolved answers to the same question, offer a way out instead of looping. */
+const CLARIFICATION_ATTEMPT_LIMIT = 3;
 
 export function RecipientGuide({
   state,
@@ -10,6 +14,7 @@ export function RecipientGuide({
   scope,
   onClarify,
   onConfirm,
+  onReview,
   busy = false,
 }: {
   state: HandoverState;
@@ -18,6 +23,7 @@ export function RecipientGuide({
   scope: string | null;
   onClarify: (id: string) => void;
   onConfirm: (id: string) => void;
+  onReview?: () => void;
   busy?: boolean;
 }) {
   const heard = state.utterances.some((utterance) => utterance.role === 'incoming');
@@ -27,9 +33,17 @@ export function RecipientGuide({
     comparisons.find((result) => !result.confirmed);
   const item = state.items.find((entry) => entry.id === current?.itemId);
   const complete = comparisons.length > 0 && comparisons.every((result) => result.confirmed);
+  const field = current && clarificationField(current);
+  // A repeated question is reworded; a bare "yes" is told it cannot answer it.
+  const { attempts, bareReply } =
+    item && field ? clarificationAttempts(state, item.id) : { attempts: 0, bareReply: false };
   const question =
-    item && current ? clarificationQuestion(item, current, language) : ui(language, 'readyToSpeak');
-  const contextKey = `${state.id}:${language}:${item?.id ?? 'full'}:${item?.revision ?? 0}`;
+    item && current
+      ? field && attempts > 0
+        ? retryQuestion(item, field, bareReply, language)
+        : clarificationQuestion(item, current, language)
+      : ui(language, 'readyToSpeak');
+  const contextKey = `${state.id}:${language}:${item?.id ?? 'full'}:${item?.revision ?? 0}:${attempts}`;
   const change =
     item && current?.stale
       ? [...state.events]
@@ -107,7 +121,14 @@ export function RecipientGuide({
             </>
           ) : (
             <>
-              <p className="guide-question">{question}</p>
+              <p className="guide-question" data-attempts={attempts}>
+                {question}
+              </p>
+              {attempts >= CLARIFICATION_ATTEMPT_LIMIT && (
+                <p className="field-help" role="status" data-testid="clarification-escape">
+                  {ui(language, 'stillUnclear')}
+                </p>
+              )}
               <div className="guide-actions">
                 <SpeakButton
                   text={question}
@@ -126,6 +147,16 @@ export function RecipientGuide({
                   {ui(language, 'clarify')}
                   <ArrowRight size={16} />
                 </button>
+                {attempts >= CLARIFICATION_ATTEMPT_LIMIT && onReview && (
+                  <button
+                    className="button button-small"
+                    type="button"
+                    data-testid="guide-review-board"
+                    onClick={onReview}
+                  >
+                    {ui(language, 'reviewOnBoard')}
+                  </button>
+                )}
               </div>
             </>
           )}
