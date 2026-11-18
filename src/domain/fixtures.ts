@@ -1,5 +1,6 @@
 import { createHandover } from './engine';
 import { parseTranscript } from './parser';
+import { stampInterpretation } from './rulesVersion';
 import type { HandoverState, Language } from './types';
 
 export const DEMO_TRANSCRIPTS = {
@@ -88,7 +89,7 @@ export function createDemoHandover(language: Language = 'en-IN'): HandoverState 
   });
   return {
     ...state,
-    utterances: [{ ...outgoing, createdAt: state.createdAt }],
+    utterances: [{ ...stampInterpretation(outgoing), createdAt: state.createdAt }],
     items: state.items.map((item) => ({
       ...item,
       evidence: outgoing.claims

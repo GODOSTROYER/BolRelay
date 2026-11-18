@@ -74,6 +74,18 @@ export interface ParsedTranscript {
 
 export interface Utterance extends ParsedTranscript {
   createdAt: string;
+  /** Interpretation rules version that produced/validated this record; absent means outdated. */
+  rulesVersion?: number;
+}
+
+/** A stored outgoing instruction that reads differently under current interpretation rules. */
+export interface SourceReview {
+  itemId: string;
+  itemRevision: number;
+  utteranceId: string;
+  /** The outgoing participant reviewed the unchanged plan. Kept so the same source is not re-flagged. */
+  reviewed: boolean;
+  createdAt: string;
 }
 
 export interface ItemReadback {
@@ -126,10 +138,12 @@ export interface HandoverState {
   confirmations: Record<string, Confirmation>;
   /** A system migration notice, independent of participant acknowledgements or storage errors. */
   recheckNotice?: {
-    reason: 'legacy-interpretation';
+    reason: 'legacy-interpretation' | 'interpretation-rules-changed';
     itemIds: string[];
     createdAt: string;
   };
+  /** Plan items whose source wording needs outgoing review; the plan itself is never rewritten. */
+  sourceReview?: SourceReview[];
   events: HandoverEvent[];
   createdAt: string;
   updatedAt: string;

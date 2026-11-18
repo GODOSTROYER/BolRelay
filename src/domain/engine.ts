@@ -1,4 +1,6 @@
 import { canonicalCondition, canonicalUnit, normalizeText, parseTranscript } from './parser';
+import { revalidateInterpretations } from './revalidation';
+import { stampInterpretation } from './rulesVersion';
 import {
   handoverItemSchema,
   handoverStateSchema,
@@ -576,7 +578,7 @@ export function recordReadback(
   };
   const existing = state.utterances.find((utterance) => utterance.utteranceId === raw.utteranceId);
   if (existing) {
-    const { createdAt: _createdAt, ...previous } = existing;
+    const { createdAt: _createdAt, rulesVersion: _rulesVersion, ...previous } = existing;
     // Legacy stored recordings have no mode metadata. A byte-identical retry is
     // still idempotent and must never reapply the old result to a changed plan.
     if (stable({ ...previous, readbackMode: previous.readbackMode ?? mode }) === stable(normalized))
@@ -640,7 +642,7 @@ export function recordReadback(
       ...(state.recheckNotice && {
         recheckNotice: remainingRecheckNotice(state, affected),
       }),
-      utterances: [...state.utterances, { ...clone(parsed), createdAt: at }],
+      utterances: [...state.utterances, { ...stampInterpretation(clone(parsed)), createdAt: at }],
     },
     {
       type: 'readback-recorded',
@@ -1000,7 +1002,8 @@ export function restoreHandover(value: unknown): HandoverState {
       return source.readbackMode === undefined;
     })
     .map(([id]) => id);
-  if (legacyItemIds.length === 0) return clone(state);
+  // Saved approvals are then rechecked against the current interpretation rules.
+  if (legacyItemIds.length === 0) return revalidateInterpretations(clone(state));
 
   const migrated = clone(state);
   for (const id of legacyItemIds) {
@@ -1016,15 +1019,17 @@ export function restoreHandover(value: unknown): HandoverState {
   };
   // A full history is retained even at the supported event limit. The separate
   // persisted system notice remains visible without adding an invalid 5001st event.
-  return migrated.events.length < 5_000
-    ? appendEvent(migrated, {
-        type: 'interpretation-upgraded',
-        itemIds: legacyItemIds,
-        message:
-          'System update: earlier read-backs need a fresh check after interpretation rules changed. Original statements and history were retained; no participant acknowledgement was added.',
-        createdAt: at,
-      })
-    : migrated;
+  return revalidateInterpretations(
+    migrated.events.length < 5_000
+      ? appendEvent(migrated, {
+          type: 'interpretation-upgraded',
+          itemIds: legacyItemIds,
+          message:
+            'System update: earlier read-backs need a fresh check after interpretation rules changed. Original statements and history were retained; no participant acknowledgement was added.',
+          createdAt: at,
+        })
+      : migrated,
+  );
 }
 
 export function getHandoverSummary(state: HandoverState) {
