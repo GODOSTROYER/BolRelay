@@ -12,6 +12,7 @@ import {
   normalizeNumbers,
   normalizeText,
   parseTranscript,
+  splitClauses,
   timeFromClause,
 } from '../src/domain/parser.ts';
 
@@ -130,6 +131,7 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
   // provider could move a modifier into an unrelated issue and quote only the
   // compliant remainder for this item.
   const wholeSource = parseTranscript(input);
+  const clauses = splitClauses(input.text);
   const covered = new Uint8Array(input.text.length);
   function evidence(quote: string): Evidence {
     const start = input.text.indexOf(quote);
@@ -159,6 +161,49 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
       if (!evidenceQuote.includes(quote))
         throw new Error(`Model ${field} evidence is outside its source quote.`);
     }
+    // A quote may span clauses about different items. Every field must come from one
+    // clause (as the local parser splits it) that also contains the object evidence.
+    const word = /[\p{L}\p{N}]/u;
+    const bounded = (at: number, needle: string) =>
+      (!word.test(needle[0]!) || !word.test(input.text[at - 1] ?? '')) &&
+      (!word.test(needle.at(-1)!) || !word.test(input.text[at + needle.length] ?? ''));
+    const within = (start: number, end: number, quote: string, whole: boolean) => {
+      const needle = quote.replace(/^[\s.!?;:,।]+|[\s.!?;:,।]+$/gu, '');
+      if (!needle) return false;
+      for (
+        let at = input.text.indexOf(needle, start);
+        at >= 0;
+        at = input.text.indexOf(needle, at + 1)
+      ) {
+        if (at + needle.length > end) return false;
+        if (!whole || bounded(at, needle)) return true;
+      }
+      return false;
+    };
+    const clause = clauses.find((span) => {
+      const start = Math.max(span.start, source.start);
+      const end = Math.min(span.end, source.end);
+      return (
+        start < end &&
+        within(start, end, fieldEvidence.object, true) &&
+        Object.entries(fieldEvidence).every(
+          ([field, quote]) => field === 'object' || within(start, end, quote, false),
+        )
+      );
+    });
+    if (!clause)
+      throw new Error(
+        'Model field evidence must come from the same clause as the words naming its items.',
+      );
+    if (
+      claim.quantity !== undefined &&
+      parseTranscript({ ...input, text: clause.text }).claims.some((candidate) =>
+        candidate.itemIds.some((id) => !claim.itemIds.includes(id)),
+      )
+    )
+      throw new Error(
+        'Model quantity comes from a clause that also names other items; state each count separately.',
+      );
     for (const field of [
       'action',
       'quantity',
