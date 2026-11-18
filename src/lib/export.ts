@@ -28,7 +28,8 @@ export function exportHandover(state: HandoverState): void {
 }
 
 export function serializeHandoverExport(state: HandoverState): string {
-  const serialized = JSON.stringify(handoverExport(restoreHandover(state)));
+  // In-memory state was already revalidated when it entered memory; only check it.
+  const serialized = JSON.stringify(handoverExport(restoreHandover(state, { revalidate: false })));
   if (new TextEncoder().encode(serialized).byteLength > MAX_HANDOVER_FILE_BYTES)
     throw new Error(
       'This handover exceeds the 32 MB backup limit. Export smaller handovers before adding more history.',
@@ -62,7 +63,8 @@ export async function importHandover(file: File): Promise<HandoverState> {
       'This export has invalid or inconsistent handover data. The current workspace has not changed.',
     );
   try {
-    return restoreHandover(result.data);
+    // A file from outside this browser: its model stamps are not trusted.
+    return restoreHandover(result.data, { origin: 'import' });
   } catch {
     throw new Error(
       'This export contains inconsistent history or confirmations. The current workspace has not changed.',

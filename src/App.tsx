@@ -46,11 +46,11 @@ import {
 } from './domain';
 import { analyzeTranscript, getCapabilities, type Capabilities } from './lib/api';
 import {
-  clearSavedWorkspace,
   downloadStoredWorkspace,
   hasNewerSavedWorkspace,
   importWorkspaceBackup,
   readWorkspace,
+  resetSavedWorkspace,
   removeAudio,
   restoreWorkspaceBackup,
   saveAudio,
@@ -135,6 +135,8 @@ export default function App() {
   workspaceRef.current = handovers;
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  // Set by "Reload latest" when it has to switch handovers: typed text survives.
+  const keepDraftsRef = useRef(false);
   const active = handovers.find((handover) => handover.id === activeId) ?? handovers[0]!;
   const comparisons = useMemo(() => compareHandover(active), [active]);
   const isDemo = active.id.startsWith('demo-');
@@ -171,14 +173,19 @@ export default function App() {
   useEffect(() => {
     const current = workspaceRef.current.find((handover) => handover.id === activeId);
     if (!current) return;
-    setIncomingText(
-      [...current.utterances].reverse().find((utterance) => utterance.role === 'incoming')?.text ??
-        '',
-    );
-    setOutgoingText(
-      [...current.utterances].reverse().find((utterance) => utterance.role === 'outgoing')?.text ??
-        (current.id.startsWith('demo-') ? DEMO_TRANSCRIPTS[current.language].outgoing : ''),
-    );
+    const keepDrafts = keepDraftsRef.current;
+    keepDraftsRef.current = false;
+    if (!keepDrafts) {
+      setIncomingText(
+        [...current.utterances].reverse().find((utterance) => utterance.role === 'incoming')
+          ?.text ?? '',
+      );
+      setOutgoingText(
+        [...current.utterances].reverse().find((utterance) => utterance.role === 'outgoing')
+          ?.text ??
+          (current.id.startsWith('demo-') ? DEMO_TRANSCRIPTS[current.language].outgoing : ''),
+      );
+    }
     setLanguage(current.participantLanguages.incoming);
     setGuided(!current.id.startsWith('demo-'));
     setScope(null);
@@ -281,21 +288,30 @@ export default function App() {
     if (latest.warning) {
       setStorageWarning(latest.warning);
       setSavingBlocked(true);
+    } else {
+      // The saved data is readable and now adopted, so saving can resume.
+      setStorageWarning(null);
+      setSavingBlocked(false);
     }
     const next = latest.handovers.length ? latest.handovers : workspaceRef.current;
-    const nextActive =
-      next.find((state) => state.id === activeIdRef.current) ??
-      next.find((state) => state.id === latest.activeId) ??
-      next[0]!;
+    const kept = next.find((state) => state.id === activeIdRef.current);
+    const nextActive = kept ?? next.find((state) => state.id === latest.activeId) ?? next[0]!;
     workspaceRef.current = next;
     setHandovers(next);
+    // Switching handovers normally loads that handover's last transcript; keep
+    // the text typed here instead so nothing is lost.
+    if (nextActive.id !== activeIdRef.current) keepDraftsRef.current = true;
     setActiveId(nextActive.id);
     if (scope && !nextActive.items.some((item) => item.id === scope)) setScope(null);
     setDialog(null);
     setError('');
     staleRef.current = false;
     setStaleWorkspace(false);
-    setToast('Loaded the latest saved handovers. Text you typed here was kept.');
+    setToast(
+      kept
+        ? 'Loaded the latest saved handovers. Text you typed here was kept.'
+        : 'The handover you were viewing is no longer saved (another tab deleted or replaced it). Loaded the latest saved handovers; the text you typed is still in the box below — review it before checking it against this handover.',
+    );
   };
 
   const commit = (id: string, transform: (state: HandoverState) => HandoverState): boolean => {
@@ -306,7 +322,9 @@ export default function App() {
       return false;
     }
     try {
-      const next = restoreHandover(transform(current));
+      // Only what this change touched is rechecked; `current` was already
+      // validated and revalidated when it entered memory.
+      const next = restoreHandover(transform(current), { previous: current });
       const updated = workspaceRef.current.map((handover) =>
         handover.id === id ? next : handover,
       );
@@ -320,13 +338,14 @@ export default function App() {
     }
   };
 
-  const addHandover = (state: HandoverState) => {
-    if (blockIfStale()) return;
+  /** False when the handover was not added (stale tab or full workspace). */
+  const addHandover = (state: HandoverState): boolean => {
+    if (blockIfStale()) return false;
     if (handovers.length >= 40) {
       setError(
         'This workspace has 40 handovers. Export and delete an older handover before adding another.',
       );
-      return;
+      return false;
     }
     const next = [state, ...workspaceRef.current];
     workspaceRef.current = next;
@@ -335,6 +354,7 @@ export default function App() {
     setView('handover');
     setDialog(null);
     setMobileNav(false);
+    return true;
   };
 
   const checkTranscript = async () => {
@@ -570,8 +590,8 @@ export default function App() {
         throw new Error(
           'This handover is already in the workspace. Import does not overwrite existing work.',
         );
-      addHandover(imported);
-      setToast('Handover imported. Review its instructions before using it.');
+      if (addHandover(imported))
+        setToast('Handover imported. Review its instructions before using it.');
     } catch (cause) {
       setError(messageOf(cause));
     }
@@ -678,8 +698,7 @@ export default function App() {
           className="load-demo"
           data-testid="load-demo"
           onClick={() => {
-            addHandover(exampleHandover());
-            setToast('A fresh synthetic example is ready.');
+            if (addHandover(exampleHandover())) setToast('A fresh synthetic example is ready.');
           }}
         >
           <RotateCcw size={15} />
@@ -1065,12 +1084,14 @@ export default function App() {
           onClose={closeDialog}
           onManual={() => setDialog({ kind: 'new-manual' })}
           onCreate={async (state, audio) => {
+            // Refuse before storing audio, so a refused create leaves no orphan recording.
+            if (blockIfStale()) throw new Error(STALE_WORKSPACE_MESSAGE);
             if (workspaceRef.current.length >= 40)
               throw new Error('Export and remove an older handover before adding another.');
             if (audio && state.utterances[0])
               await saveAudio(state.utterances[0].utteranceId, audio.blob);
-            addHandover(state);
-            setToast('Reviewed handover created. The incoming person can now state their plan.');
+            if (addHandover(state))
+              setToast('Reviewed handover created. The incoming person can now state their plan.');
           }}
         />
       )}
@@ -1079,8 +1100,8 @@ export default function App() {
           onClose={closeDialog}
           onCreate={(input: CreateHandoverInput) => {
             try {
-              addHandover(createHandover(input));
-              setToast('Handover created. Ask the incoming person to explain the plan.');
+              if (addHandover(createHandover(input)))
+                setToast('Handover created. Ask the incoming person to explain the plan.');
             } catch (cause) {
               setError(messageOf(cause));
             }
@@ -1386,11 +1407,24 @@ export default function App() {
               className="button button-primary"
               onClick={() => {
                 try {
-                  clearSavedWorkspace();
-                  const result = writeWorkspace(handovers, activeId);
+                  const result = resetSavedWorkspace(handovers, activeId);
+                  if (result.newer) {
+                    // Another tab already saved readable or different data:
+                    // never wipe it. Switch to the reload path instead, so this
+                    // tab's unsaved work can still be exported before reloading.
+                    staleRef.current = true;
+                    setStaleWorkspace(true);
+                    closeDialog();
+                    setError(
+                      'Nothing was reset: another tab has already saved newer work. Export anything you need from this tab, then reload the latest.',
+                    );
+                    return;
+                  }
                   if (!result.ok) throw new Error(result.error);
                   setSavingBlocked(false);
                   setStorageWarning(null);
+                  staleRef.current = false;
+                  setStaleWorkspace(false);
                   closeDialog();
                   setToast('The current workspace is saved.');
                 } catch (cause) {
