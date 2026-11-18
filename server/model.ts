@@ -12,6 +12,7 @@ import {
   normalizeNumbers,
   normalizeText,
   parseTranscript,
+  readQuantity,
   splitClauses,
   timeFromClause,
 } from '../src/domain/parser.ts';
@@ -123,6 +124,32 @@ Use only supplied item IDs and clarification scope. The catalogue contains ident
 Keep evidenceQuote VERBATIM, unmodified, from the original transcript, including original language. Choose a unique contiguous quote per claim. The server computes offsets. Never fabricate evidence. Distinguish planned from completed actions; completed-only statements get an action uncertainty issue. Negation, ambiguous references, unclear numbers/units, multiple possible time readings and uncertain pronouns require an issue/uncertainFields rather than guessing. A corrective phrase may supersede an earlier value only when explicitly said; attach evidence including that correction.
 Account for every clause, including contradictory or alternative actions: every word must occur within at least one claim or issue evidenceQuote. Do not quote only the compliant half of an instruction. Treat unclear day periods as uncertain, without inferring a time from context you were not given. Canonicalise explicit address confirmation to "address confirmed"; checking an address is not necessarily confirmation. Preserve other prerequisites in their original language. Do not merge hold-until with dispatch-without-prerequisite. A promise to send ALL includes held items too; it must not be silently made compliant. Resolve named groups to their constituent IDs, and preserve aggregate quantities.
 Supported languages: English, Hindi and Marathi. Translate field values carefully, but keep quoted evidence in the original language. Do not manufacture confidence percentages. If a transcript is outside this bounded task, return issues and no invented claims.`;
+
+/**
+ * The quoted quantity must read as exactly the claimed count with the parser's
+ * own rules, and it must not be a fragment of a larger number expression in
+ * its source quote ("eight" inside "thirty eight", "8" inside "38" or "1,008",
+ * "eight" after "a hundred and").
+ */
+function quantityEvidenceSupports(sourceQuote: string, quote: string, quantity: number): boolean {
+  if (readQuantity(quote).quantity !== quantity) return false;
+  const word = /[\p{L}\p{M}\p{N}]/u;
+  const joiner = '(?:[\\s\\-\\u2010\\u2011]+|(?<=\\d)[,.](?=\\d))';
+  const before = new RegExp(
+    `(?<![\\p{L}\\p{M}\\p{N}])(?:[\\p{L}\\p{M}\\p{N}]+${joiner}){0,2}$`,
+    'u',
+  );
+  const after = new RegExp(`^(?:${joiner}[\\p{L}\\p{M}\\p{N}]+){0,2}`, 'u');
+  for (let at = sourceQuote.indexOf(quote); at >= 0; at = sourceQuote.indexOf(quote, at + 1)) {
+    const head = sourceQuote.slice(0, at);
+    const tail = sourceQuote.slice(at + quote.length);
+    if (word.test(head.at(-1) ?? '') || word.test(tail[0] ?? '')) return false;
+    if (/\d[,.]$/u.test(head) || /^[,.]\d/u.test(tail)) return false;
+    const context = `${before.exec(head)![0]}${quote}${after.exec(tail)![0]}`;
+    if (readQuantity(context).quantity !== quantity) return false;
+  }
+  return true;
+}
 
 export function validateModelOutput(raw: unknown, input: ExtractionRequest): ParsedTranscript {
   const result = modelOutput.parse(raw);
@@ -239,20 +266,13 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
       throw new Error('Model object evidence does not identify the referenced items.');
     if (claim.action !== undefined && actionFromText(fieldEvidence.action!) !== claim.action)
       throw new Error('Model action is not supported by its field evidence.');
-    if (claim.quantity !== undefined) {
-      const numbers = [
-        ...normalizeNumbers(fieldEvidence.quantity!).matchAll(
-          /(?<![\p{L}\p{N}])\d+(?:\.\d+)?(?![\p{L}\p{N}])/gu,
-        ),
-      ].map((m) => Number(m[0]));
-      const corrected = /\b(?:sorry|actually|i mean|no)\b|माफ|नाही|नहीं/iu.test(
-        fieldEvidence.quantity!,
+    if (
+      claim.quantity !== undefined &&
+      !quantityEvidenceSupports(evidenceQuote, fieldEvidence.quantity!, claim.quantity)
+    )
+      throw new Error(
+        'Model quantity is not supported by its field evidence; repeat the number explicitly.',
       );
-      if ((numbers.length !== 1 && !corrected) || numbers.at(-1) !== claim.quantity)
-        throw new Error(
-          'Model quantity is not supported by its field evidence; repeat the number explicitly.',
-        );
-    }
     if (
       claim.unit !== undefined &&
       canonicalUnit(fieldEvidence.unit!) !== canonicalUnit(claim.unit)

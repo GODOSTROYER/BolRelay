@@ -37,6 +37,13 @@ const numberWords: Record<string, string> = {
   eighteen: '18',
   nineteen: '19',
   twenty: '20',
+  thirty: '30',
+  forty: '40',
+  fifty: '50',
+  sixty: '60',
+  seventy: '70',
+  eighty: '80',
+  ninety: '90',
   एक: '1',
   दो: '2',
   दोन: '2',
@@ -66,8 +73,17 @@ const numberWords: Record<string, string> = {
   बीस: '20',
   वीस: '20',
 };
+// Devanagari vowel signs, virama and nukta are combining marks (\p{M}). They are
+// part of a word: वीस must not be read inside अठ्ठावीस (28), nor एक inside एकोणीस (19).
 const wordPattern = new RegExp(
-  `(?<![\\p{L}\\p{N}])(${Object.keys(numberWords).join('|')})(?![\\p{L}\\p{N}])`,
+  `(?<![\\p{L}\\p{M}\\p{N}])(${Object.keys(numberWords).join('|')})(?![\\p{L}\\p{M}\\p{N}])`,
+  'gu',
+);
+const englishUnits = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+// English tens + unit ("thirty eight", "eighty-eight") is one number, never a
+// bare tens value followed by a separate unit value.
+const englishCompound = new RegExp(
+  `(?<![\\p{L}\\p{M}\\p{N}])(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:\\s|[-\\u2010\\u2011])(${englishUnits.join('|')})(?![\\p{L}\\p{M}\\p{N}])`,
   'gu',
 );
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -84,7 +100,11 @@ export function normalizeText(text: string): string {
 
 /** Normalisation for interpreted values only; evidence keeps original text and offsets. */
 export function normalizeNumbers(text: string): string {
-  return normalizeText(text).replace(wordPattern, (word) => numberWords[word]!);
+  return normalizeText(text)
+    .replace(englishCompound, (_, tens: string, unit: string) =>
+      String(Number(numberWords[tens]) + englishUnits.indexOf(unit) + 1),
+    )
+    .replace(wordPattern, (word) => numberWords[word]!);
 }
 
 export function canonicalUnit(unit: string): string {
@@ -213,6 +233,13 @@ export function splitClauses(text: string): Evidence[] {
       if (/\b[ap]$/i.test(before) && /^m\./i.test(after)) continue;
       if (/\b[ap]\.m$/i.test(before)) continue;
     }
+    // "1,008" is one written number; splitting it would leave a partial "008".
+    if (
+      match[0] === ',' &&
+      /[\d०-९]$/.test(text.slice(0, end)) &&
+      /^[\d०-९]/.test(text.slice(end + 1))
+    )
+      continue;
     push(previous, end);
     previous = end + match[0].length;
   }
@@ -332,6 +359,108 @@ function statedOwner(text: string, items: HandoverItem[]): string | undefined {
     return [indic[1]!, first].find((word): word is string => !!word && isName(word));
   }
   return undefined;
+}
+
+// Hindi/Marathi number words above the small supported set. They are recognised
+// only to report an unsupported quantity: their values are never interpreted.
+const indicNumberWords = `सोलह सत्रह अठारह उन्नीस इक्कीस बाईस तेईस चौबीस पच्चीस छब्बीस सत्ताईस अट्ठाईस अठाईस उनतीस उन्तीस तीस इकतीस इकत्तीस बत्तीस तैंतीस चौंतीस पैंतीस छत्तीस सैंतीस अड़तीस उनतालीस उन्तालीस चालीस इकतालीस बयालीस तैंतालीस चवालीस चौवालीस पैंतालीस छियालीस सैंतालीस अड़तालीस उनचास पचास इक्यावन बावन तिरपन चौवन पचपन छप्पन सत्तावन अट्ठावन उनसठ साठ इकसठ बासठ तिरसठ चौंसठ पैंसठ छियासठ सड़सठ अड़सठ उनहत्तर सत्तर इकहत्तर बहत्तर तिहत्तर चौहत्तर पचहत्तर छिहत्तर सतहत्तर अठहत्तर उन्यासी उनासी अस्सी इक्यासी बयासी तिरासी चौरासी पचासी छियासी सत्तासी अट्ठासी अठासी नवासी नब्बे इक्यानवे बानवे तिरानवे चौरानवे पंचानवे छियानवे सत्तानवे अट्ठानवे निन्यानवे
+सोळा सतरा अठरा एकोणीस एकवीस बावीस तेवीस चोवीस पंचवीस सव्वीस सत्तावीस अठ्ठावीस एकोणतीस एकतीस तेहतीस तेहेतीस चौतीस पस्तीस सदतीस अडतीस एकोणचाळीस चाळीस एक्केचाळीस बेचाळीस त्रेचाळीस चव्वेचाळीस पंचेचाळीस सेहेचाळीस सत्तेचाळीस अठ्ठेचाळीस एकोणपन्नास पन्नास एक्कावन्न बावन्न त्रेपन्न चोपन्न पंचावन्न छप्पन्न सत्तावन्न अठ्ठावन्न एकोणसाठ एकसष्ट बासष्ट त्रेसष्ट चौसष्ट पासष्ट सहासष्ट सदुसष्ट अडुसष्ट एकोणसत्तर एकाहत्तर बाहत्तर त्र्याहत्तर चौऱ्याहत्तर पंच्याहत्तर शहात्तर सत्याहत्तर अठ्ठ्याहत्तर एकोणऐंशी ऐंशी एक्याऐंशी ब्याऐंशी त्र्याऐंशी चौऱ्याऐंशी पंच्याऐंशी शहाऐंशी सत्याऐंशी अठ्ठ्याऐंशी अठ्याऐंशी एकोणनव्वद नव्वद एक्याण्णव ब्याण्णव त्र्याण्णव चौऱ्याण्णव पंच्याण्णव शहाण्णव सत्त्याण्णव अठ्ठ्याण्णव नव्व्याण्णव`;
+/** Fold common Devanagari spelling variants (nukta, chandrabindu, joiners, ट्ठ/ठ्ठ, ऱ). */
+const foldIndic = (word: string) =>
+  word
+    .normalize('NFC')
+    .replace(/[\u093C\u200C\u200D]/gu, '')
+    .replace(/\u0901/gu, '\u0902')
+    .replace(/\u0931/gu, '\u0930')
+    .replace(/ट्ठ/gu, 'ठ्ठ');
+const indicNumberSet = new Set(indicNumberWords.split(/\s+/u).map(foldIndic));
+const isUnsupportedIndicNumber = (token: string) => {
+  if (numberWords[token]) return false;
+  const folded = foldIndic(token);
+  return (
+    indicNumberSet.has(folded) ||
+    /^एकोण/u.test(folded) ||
+    /(?:वीस|बीस|तीस|चाळीस|तालीस|हत्तर|ऐंशी|ण्णव|सष्ट)$/u.test(folded)
+  );
+};
+
+export interface QuantityReading {
+  quantity?: number;
+  issues: { code: string; message: string }[];
+}
+
+/** Read one exact count, or report why it is not safe to read. Never returns a partial number. */
+export function readQuantity(text: string): QuantityReading {
+  const value = normalizeNumbers(text);
+  const issues: QuantityReading['issues'] = [];
+  const add = (code: string, message: string) => {
+    if (!issues.some((issue) => issue.code === code)) issues.push({ code, message });
+  };
+  if (/\b(?:minus|negative)\s*\d|(?<![\p{L}\p{N}])[-−]\s*\d|(?:माइनस|ऋण|उणे)\s*\d/iu.test(value))
+    add(
+      'NEGATIVE_QUANTITY',
+      'A negative quantity was heard. State a positive count; subtraction or removal requires a separate reviewed change.',
+    );
+  if (
+    /\b(?:about|roughly|around|approximately|approx|nearly|almost|at least|at most|more than|less than|up to|over|under)\b|लगभग|करीब|साधारण|अंदाजे|किमान|कमाल|कम\s*से\s*कम|जास्तीत\s*जास्त/iu.test(
+      value,
+    )
+  )
+    add(
+      'QUALIFIED_QUANTITY',
+      'The quantity is approximate or bounded rather than an exact count. State the exact quantity before confirming.',
+    );
+  const folded = foldIndic(value);
+  if (
+    /\b(?:hundred|thousand|million|billion|lakh|lac|crore|dozens?|half|quarter|twice|thrice)\b|(?<![\p{L}\p{M}])(?:double|triple|डबल)\s*\d|\d\s*(?:times|x)\b|(?<![\p{L}\p{M}])(?:सौ|हजार|लाख|करोड|दर्जन|शंभर|कोटी|डझन|आधा|अर्धा|दीड|सव्वा|सवा|पाव|पौने|पावणे|साढे|साडे|डेढ|ढाई|अढाई|अडीच|दुगना|दुगुना|दुगने|दुगुने|तिगुना|दुप्पट|तिप्पट)(?![\p{L}\p{M}])/iu.test(
+      folded,
+    )
+  )
+    add(
+      'UNSUPPORTED_QUANTITY_EXPRESSION',
+      'This compound quantity needs an explicit numeral. Repeat the total count without a multiplier or fraction word.',
+    );
+  if (
+    // Number wording the local rules do not compose: a digit joined to another
+    // word or number by a hyphen ("30-eighth", "8-30"), a written digit group
+    // ("1,008"), an unknown tens/teens word next to a number ("fourty 8"), an
+    // ordinal after a number ("30 eighth"), or a Hindi/Marathi compound number.
+    (value.match(/[\p{L}\p{M}\p{N}]+(?:[-\u2010\u2011][\p{L}\p{M}\p{N}]+)+/gu) ?? []).some(
+      (token) => /\d/.test(token),
+    ) ||
+    /\d,\d/.test(value) ||
+    /\b[a-z]+(?:ty|teen)\s+\d/u.test(value) ||
+    /\d\s+(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)\b/u.test(value) ||
+    (value.match(/[\p{L}\p{M}]+/gu) ?? []).some(isUnsupportedIndicNumber)
+  )
+    add(
+      'UNSUPPORTED_QUANTITY_EXPRESSION',
+      'This number wording is not safely understood. Repeat the total count as a plain number.',
+    );
+  const amounts = [...value.matchAll(/(?<![\p{L}\p{N}])\d+(?:\.\d+)?(?![\p{L}\p{N}])/gu)];
+  let quantity: number | undefined;
+  if (amounts.length === 1) quantity = Number(amounts[0]![0]);
+  else if (amounts.length > 1) {
+    // A self-correction supersedes only when the corrective word is spoken
+    // between the earlier number and the final one ("ten, no, eight").
+    const previous = amounts.at(-2)!;
+    const last = amounts.at(-1)!;
+    const between = value.slice(previous.index! + previous[0].length, last.index);
+    if (/\b(?:sorry|actually|i mean|no)\b|माफ|नाही|नहीं/iu.test(between)) quantity = Number(last[0]);
+    else
+      add(
+        'AMBIGUOUS_QUANTITY',
+        'Several quantities were heard. State the final quantity for this item or group.',
+      );
+  }
+  if (issues.some((issue) => issue.code === 'UNSUPPORTED_QUANTITY_EXPRESSION'))
+    quantity = undefined;
+  if (quantity !== undefined && quantity <= 0)
+    add(
+      'INVALID_QUANTITY',
+      'Use a positive quantity; removing an item is a separate reviewed change.',
+    );
+  return { ...(quantity !== undefined ? { quantity } : {}), issues };
 }
 
 /** Extract grounded claims without ever mutating the manager's confirmed plan. */
@@ -515,62 +644,22 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'UNSUPPORTED_BEFORE_TIME',
         'A latest-time statement does not establish the required earliest release time. Clarify when release may begin.',
       );
-    // Remove IDs before reading quantities: J1/J2 are identifiers, not amounts.
+    // Remove IDs, and names that contain digits ("Route 8"), before reading
+    // quantities: they are identifiers, not amounts.
     let quantityText = clock.cleaned;
-    for (const item of scope)
-      quantityText = quantityText.replace(
-        new RegExp(`(?<![\\p{L}\\p{N}])${escape(normalizeText(item.id))}(?![\\p{L}\\p{N}])`, 'gu'),
-        ' ',
-      );
-    if (
-      /\b(?:minus|negative)\s*\d|(?<![\p{L}\p{N}])[-−]\s*\d|(?:माइनस|ऋण|उणे)\s*\d/iu.test(
-        quantityText,
-      )
-    )
-      uncertain(
-        'quantity',
-        'NEGATIVE_QUANTITY',
-        'A negative quantity was heard. State a positive count; subtraction or removal requires a separate reviewed change.',
-      );
-    if (
-      /\b(?:about|roughly|around|approximately|approx|nearly|almost|at least|at most|more than|less than|up to|over|under)\b|लगभग|करीब|साधारण|अंदाजे|किमान|कमाल|कम\s*से\s*कम|जास्तीत\s*जास्त/iu.test(
-        quantityText,
-      )
-    )
-      uncertain(
-        'quantity',
-        'QUALIFIED_QUANTITY',
-        'The quantity is approximate or bounded rather than an exact count. State the exact quantity before confirming.',
-      );
-    if (
-      /\b(?:hundred|thousand|million|billion|lakh|lac|crore|dozens?|half|quarter)\b|(?<![\p{L}\p{M}])(?:सौ|हज़ार|हजार|लाख|करोड़|दर्जन|शंभर|कोटी|डझन|आधा|अर्धा|दीड|सव्वा|पाव)(?![\p{L}\p{M}])/iu.test(
-        quantityText,
-      )
-    )
-      uncertain(
-        'quantity',
-        'UNSUPPORTED_QUANTITY_EXPRESSION',
-        'This compound quantity needs an explicit numeral. Repeat the total count without a multiplier or fraction word.',
-      );
-    const amounts = [
-      ...quantityText.matchAll(/(?<![\p{L}\p{N}])\d+(?:\.\d+)?(?![\p{L}\p{N}])/gu),
-    ].map((match) => Number(match[0]));
-    let quantity: number | undefined;
-    if (amounts.length === 1) quantity = amounts[0];
-    else if (amounts.length > 1 && /\b(?:sorry|actually|i mean|no)\b|माफ|नाही|नहीं/iu.test(normal))
-      quantity = amounts.at(-1);
-    else if (amounts.length > 1)
-      uncertain(
-        'quantity',
-        'AMBIGUOUS_QUANTITY',
-        'Several quantities were heard. State the final quantity for this item or group.',
-      );
-    if (quantity !== undefined && quantity <= 0)
-      uncertain(
-        'quantity',
-        'INVALID_QUANTITY',
-        'Use a positive quantity; removing an item is a separate reviewed change.',
-      );
+    const names = input.items.flatMap((item) => [
+      item.id,
+      ...[item.label, ...item.aliases].filter((name) => /\d/.test(normalizeNumbers(name))),
+    ]);
+    for (const name of names.sort((a, b) => b.length - a.length))
+      for (const form of new Set([normalizeText(name), normalizeNumbers(name)]))
+        quantityText = quantityText.replace(
+          new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])${escape(form)}(?![\\p{L}\\p{M}\\p{N}])`, 'gu'),
+          ' ',
+        );
+    const reading = readQuantity(quantityText);
+    for (const { code, message } of reading.issues) uncertain('quantity', code, message);
+    const quantity = reading.quantity;
 
     const unitMatch =
       /\b(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs)\b|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे/iu.exec(
