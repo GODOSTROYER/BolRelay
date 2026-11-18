@@ -196,6 +196,41 @@ export function ui(language: Language, key: CopyKey): string {
   return copy[key][language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0];
 }
 
+// Two languages, one plan: names and wording for comparisons across languages.
+const languageNames: Record<Language, readonly [string, string, string]> = {
+  'en-IN': ['English', 'अंग्रेज़ी', 'इंग्रजी'],
+  'hi-IN': ['Hindi', 'हिंदी', 'हिंदी'],
+  'mr-IN': ['Marathi', 'मराठी', 'मराठी'],
+};
+const pick = (language: Language) => (language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0);
+/** The name of `named`, written in the `language` of the person reading it. */
+export function languageName(named: Language, language: Language): string {
+  return languageNames[named][pick(language)];
+}
+/** Sidebar label for the synthetic two-language example. */
+export function crossLanguageExampleLabel(
+  outgoing: Language,
+  incoming: Language,
+  language: Language,
+): string {
+  const pair = `${languageName(outgoing, language)} → ${languageName(incoming, language)}`;
+  return [`${pair} example`, `${pair} उदाहरण`, `${pair} उदाहरण`][pick(language)]!;
+}
+/** A short note that the instruction and the read-back were compared across two languages. */
+export function languagePairNote(
+  instruction: Language,
+  readback: Language,
+  language: Language,
+): string {
+  const a = languageName(instruction, language);
+  const b = languageName(readback, language);
+  return [
+    `Instruction in ${a} · read-back in ${b} · compared as one plan`,
+    `निर्देश: ${a} · जवाब: ${b} · दोनों एक ही योजना से मिलाए गए`,
+    `सूचना: ${a} · उत्तर: ${b} · दोन्ही एकाच योजनेशी पडताळले`,
+  ][pick(language)]!;
+}
+
 export function conditionLabel(value: string, language: Language): string {
   return value === 'address confirmed'
     ? { 'en-IN': 'address confirmed', 'hi-IN': 'पता कन्फर्म हो', 'mr-IN': 'पत्त्याची पुष्टी होईल' }[

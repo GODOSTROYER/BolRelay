@@ -4,6 +4,7 @@ import { clarificationAttempts, clarificationField } from '../domain/engine';
 import type { HandoverState, ItemComparison, Language } from '../domain/types';
 import { currentQuestion, describeInstruction, ui } from '../lib/language';
 import { SpeakButton } from './SpeakButton';
+import { LanguagePairNote } from './LanguagePairNote';
 
 /** After this many unresolved answers to the same question, offer a way out instead of looping. */
 const CLARIFICATION_ATTEMPT_LIMIT = 3;
@@ -249,6 +250,7 @@ export function RecipientGuide({
               </div>
             </>
           )}
+          <LanguagePairNote state={state} itemIds={[item.id]} language={language} />
         </div>
       )}
       <p className="field-help">

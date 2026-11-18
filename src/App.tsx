@@ -8,6 +8,7 @@ import {
   FileText,
   History,
   Info,
+  Languages,
   Laptop,
   Menu,
   Mic,
@@ -27,6 +28,7 @@ import {
   confirmItem,
   createDemoHandover,
   createHandover,
+  CROSS_LANGUAGE_DEMO,
   DEMO_TRANSCRIPTS,
   pendingSourceReviewItemIds,
   recordReadback,
@@ -67,7 +69,7 @@ import { Modal, publishDialogNotice } from './components/Modal';
 import { VoiceComposer } from './components/VoiceComposer';
 import { SpokenHandover, type SpokenHandoverDraft } from './components/SpokenHandover';
 import { RecipientGuide } from './components/RecipientGuide';
-import { currentQuestion, ui } from './lib/language';
+import { crossLanguageExampleLabel, currentQuestion, ui } from './lib/language';
 import type { CapturedAudio } from './hooks/useVoiceCapture';
 import './styles.css';
 
@@ -88,9 +90,10 @@ const messageOf = (error: unknown) =>
 const STALE_DIALOG_MESSAGE =
   'Another tab saved newer work, so nothing in this dialog is saved yet. Choose “Reload latest”: what you entered here stays in this dialog, then try again.';
 
-function exampleHandover() {
-  const example = createDemoHandover();
-  return submitReadback(example, DEMO_TRANSCRIPTS['en-IN'].mistaken);
+/** A synthetic example, opened with the incoming worker's mistaken read-back already checked. */
+function exampleHandover(outgoing: Language = 'en-IN', incoming: Language = outgoing) {
+  const example = createDemoHandover(outgoing, incoming);
+  return submitReadback(example, DEMO_TRANSCRIPTS[incoming].mistaken);
 }
 
 function initialWorkspace() {
@@ -780,6 +783,24 @@ export default function App() {
         >
           <RotateCcw size={15} />
           Load example
+        </button>
+        <button
+          type="button"
+          className="load-demo"
+          data-testid="load-cross-language-demo"
+          style={{ marginTop: 0 }}
+          onClick={() => {
+            const { outgoing, incoming } = CROSS_LANGUAGE_DEMO;
+            if (addHandover(exampleHandover(outgoing, incoming)))
+              setToast('A fresh synthetic two-language example is ready.');
+          }}
+        >
+          <Languages size={15} />
+          {crossLanguageExampleLabel(
+            CROSS_LANGUAGE_DEMO.outgoing,
+            CROSS_LANGUAGE_DEMO.incoming,
+            language,
+          )}
         </button>
         <div className="sidebar-footer">
           <button

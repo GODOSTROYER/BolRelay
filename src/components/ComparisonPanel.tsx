@@ -18,6 +18,7 @@ import {
   ui,
 } from '../lib/language';
 import { SpeakButton } from './SpeakButton';
+import { LanguagePairNote } from './LanguagePairNote';
 
 export function AudioClip({ utteranceId }: { utteranceId: string }) {
   const [src, setSrc] = useState('');
@@ -83,6 +84,7 @@ export function ComparisonPanel({
               comparisons.every((result) => result.confirmed) ? 'completeHelp' : 'matchedHelp',
             )}
           </p>
+          <LanguagePairNote state={state} language={language} />
         </div>
       </section>
     );
@@ -96,6 +98,11 @@ export function ComparisonPanel({
             : `${issues.length} ${ui(language, 'items')} · ${ui(language, 'clarifyTitle')}`}
         </h2>
       </div>
+      <LanguagePairNote
+        state={state}
+        itemIds={issues.map((result) => result.itemId)}
+        language={language}
+      />
       {issues.map((result, index) => {
         const item = state.items.find((entry) => entry.id === result.itemId)!;
         const readback = state.readbacks[item.id];
