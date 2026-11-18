@@ -54,6 +54,10 @@ The local comparison is deliberately explicit:
 - A missing prerequisite remains an omission. An unconfirmed extra prerequisite remains unresolved.
 - Completed-work statements are not accepted as an unambiguous next-action explanation.
 - Supported paraphrases can match; unfamiliar or ambiguous wording must be reviewed.
+- A count is read only next to its item, ID or unit. Any other time, time limit or duration in the clause is never a count, and a second time leaves the release time unresolved.
+- “Until”, “unless”, “तक” and “पर्यंत” end a hold; said with any other action they leave the time and prerequisite unresolved. A transitive “leave” and Marathi “सोडून देणे” are not dispatches.
+- Questions, and instructions addressed to someone else (“Send …”, “You will send …”, “आप … भेजेंगे”) without a named owner, are not the incoming worker’s commitment.
+- A short clarification answer completes only one detail. When the earlier read-back has wording the rules could not account for, a question, a negation, completed work, competing actions or a second time, the guide asks for the whole item again and a one-word answer never clears it.
 
 Agreement is consistency between stated intentions and the recorded instruction. It is not proof that the instruction itself is true, that the person understood every implication, or that work happened.
 

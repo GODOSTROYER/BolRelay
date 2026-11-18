@@ -234,30 +234,52 @@ export function canonicalCondition(condition: string): string {
   return [...new Set(parts)].sort().join(' and ');
 }
 
-// Compiled once per token: a transcript of thousands of clauses re-tests the same names.
-const tokenPatterns = new Map<string, RegExp>();
+/**
+ * Whether `token` occurs in `text` bounded by non-letters and non-digits. No RegExp is
+ * compiled: tokens are often transcript words, and a per-token pattern cache keyed by what a
+ * worker said grew the heap by tens of megabytes on long sessions.
+ */
+const letterOrDigit = /[\p{L}\p{N}]/u;
 const hasToken = (text: string, token: string) => {
-  let pattern = tokenPatterns.get(token);
-  if (!pattern) {
-    if (tokenPatterns.size >= 4096) tokenPatterns.clear();
-    pattern = new RegExp(
-      `(?<![\\p{L}\\p{N}])${escape(normalizeText(token))}(?![\\p{L}\\p{N}])`,
-      'u',
-    );
-    tokenPatterns.set(token, pattern);
+  const needle = normalizeText(token);
+  if (!needle) return false;
+  for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) {
+    const before = at > 0 ? String.fromCodePoint(text.codePointAt(at - 1)!) : '';
+    const after = text.codePointAt(at + needle.length);
+    if (
+      !(before && letterOrDigit.test(before)) &&
+      !(after !== undefined && letterOrDigit.test(String.fromCodePoint(after)))
+    )
+      return true;
   }
-  return pattern.test(text);
+  return false;
 };
 const allMarker = allItemsMarker;
-const holdMarker = /\b(?:hold|wait|keep|retain|stay|remain)\b|रोक|रुके|रख|थांब|ठेव/iu;
-const dispatchMarker = /\b(?:send|dispatch|release|ship|leave)\b|भेज|रवाना|पाठव|सोड/iu;
-const packMarker = /\b(?:pack|prepare|wrap)\b|पैक|पॅक|पॅकिंग/iu;
-const collectMarker = /\b(?:collect|pick\s*up)\b|उठा|घेऊन|गोळा/iu;
+// Inflected forms count as the same action ("keep sending" is a hold verb and a dispatch
+// verb, so it competes). "remaining" is a group word, never a hold.
+const holdMarker =
+  /\b(?:hold(?:s|ing)?|wait(?:s|ing)?|keep(?:s|ing)?|retain(?:s|ing)?|stay(?:s|ing)?|remains?)\b|रोक|रुके|रख|थांब|ठेव/iu;
+/**
+ * "Leave" is a dispatch only when the item itself leaves ("the parcels will leave after
+ * 3 PM"). "I will leave the parcels here" means the opposite, so a transitive "leave" is no
+ * action. The Marathi सोड-stem ("सोडून देईन", "सोडून टाकेन") usually means leave or abandon
+ * and is no supported action either.
+ */
+const intransitiveLeave =
+  /\b(?:parcels?|packages?|boxes|box|cartons?|pieces?|they|it|all|both|\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:will|shall|can|may|should)\s+leave\b(?=\s*(?:[.,;!?।]|$)|\s+(?:after|at|once|past|not\s+before|only|when|today|now)\b)/iu;
+const dispatchMarker = new RegExp(
+  String.raw`\b(?:send(?:s|ing)?|dispatch(?:es|ing)?|releas(?:e|es|ing)|ship(?:s|ping)?)\b|${intransitiveLeave.source}|भेज|रवाना|पाठव`,
+  'iu',
+);
+const packMarker = /\b(?:pack(?:s|ing)?|prepar(?:e|es|ing)|wrap(?:s|ping)?)\b|पैक|पॅक|पॅकिंग/iu;
+const collectMarker = /\b(?:collect(?:s|ing)?|pick(?:s|ing)?\s*up)\b|उठा|घेऊन|गोळा/iu;
 // Indic forms: planned/imperative prohibitions only. Past tense (भेजा नहीं, पाठवले नाही) and
 // "otherwise" (नहीं तो, नाहीतर) are not prohibitions and stay unhandled negation.
 const prohibitedDispatch =
   /\b(?:do not|don't|will not|must not|won't|cannot|can't|never)\s+(?:send|dispatch|release|ship)\b|(?<![\p{L}\p{M}])(?:(?:मत|नहीं|नही)\s*|न\s+)भेज(?![ाेी](?![\p{L}\p{M}]))|भेज(?:ना|नी|ने|ो|ें|िए|िये|ूं|ूँ|ूंगा|ूँगा|ूंगी|ूँगी|ेंगे|ेंगी|ेगा|ेगी)?\s*(?:नहीं|नही|मत)(?![\p{L}\p{M}])(?!\s*तो(?![\p{L}\p{M}]))|(?<![\p{L}\p{M}])(?:(?:नाही|नको)\s*|न\s+)पाठव(?!(?:ले|ला|ली|लं)(?![\p{L}\p{M}]))|पाठव(?:ू|णार|ेन|ायचे|ायचा|ायची|ायला|ावे|ावेत)?\s*(?:नाही|नाहीत|नका|नको|नकोस|नये)(?![\p{L}\p{M}])(?!\s*तर(?![\p{L}\p{M}]))/iu;
 const prohibitedDispatchAll = new RegExp(prohibitedDispatch.source, 'giu');
+/** "Do not send eight …": the count and time are said under a negation. */
+export const statesProhibition = (text: string) => prohibitedDispatch.test(normalizeText(text));
 // Pleonastic negation of the supported "until" idioms: जब तक … नहीं होता / जोपर्यंत … होत नाही.
 // The negated हो* must directly follow the address and confirmation words, so the span can
 // never run past तब तक / तोपर्यंत into a negation of the main clause ("… तब तक रोकना नहीं होगा").
@@ -294,6 +316,34 @@ const unsupportedIndicNegation = (normal: string, valueAnswer = false) =>
   indicNegation.test(unexplainedIndicText(normal, valueAnswer));
 const gateMarker =
   /\b(?:until|till|unless|once|only after|after the address|when the address)\b|जब\s*तक|होने\s*तक|पुष्टि\s*के\s*बाद|जोपर्यंत|होईपर्यंत|पुष्टी\s*झाल्यावर|पत्ता\s*कन्फर्म\s*झाल्यावर/iu;
+/** A gate that ends a hold ("until", "unless", "तक", "पर्यंत"); for any other action it inverts. */
+const untilGate =
+  /\b(?:until|till|unless)\b|(?<![\p{L}\p{M}])तक(?![\p{L}\p{M}])|पर्यंत(?![\p{L}\p{M}])/iu;
+export const hasUntilGate = (text: string) => untilGate.test(normalizeText(text));
+const danglingConjunction = new RegExp(`(?:${conjunctionBody})\\s*[.,!?;:।'"]*$`, 'iu');
+const englishWorkVerb = String.raw`(?:send|dispatch|release|ship|hold|keep|retain|pack|prepare|wrap|collect|pick\s+up|wait)\b`;
+const englishDelegation = new RegExp(
+  String.raw`\b(?:you|he|she|they|someone|somebody)(?:'ll|\s+(?:will|shall|should|must|can|could|would|may|are\s+(?:going\s+)?to|is\s+(?:going\s+)?to|needs?\s+to|ha(?:ve|s)\s+to))\s+(?:also\s+|then\s+|please\s+)?${englishWorkVerb}|^(?:(?:please|kindly|pls|ok|okay|so|now|then|and|also|just)\s*,?\s+)*${englishWorkVerb}|\b(?:please|kindly)\s+${englishWorkVerb}`,
+  'iu',
+);
+const englishFirstPerson = /\b(?:i|we|i'll|we'll|i'm|we're|i've)(?![\p{L}'])/iu;
+const indicFirstPerson =
+  /(?<![\p{L}\p{M}])(?:मैं|हम|मुझे|हमें|मी|आम्ही|मला|आम्हाला)(?![\p{L}\p{M}])|(?:ूंगा|ूंगी|ूं|ऊंगा|ऊंगी|ऊं|ेन|ीन|ईन)(?![\p{L}\p{M}])/u;
+const indicOtherPerson =
+  /(?<![\p{L}\p{M}])(?:आप|तुम|तू|तुम्ही|तुम्हाला|वह|वो|वे|नका|नकोस|नको|भेजो|भेजें|भेजिए|भेजिये|भेजना|भेजिएगा|रोको|रोकें|रोकिए|रोकिये|रोकना|रखो|रखें|रखिए|रखिये|रखना|करो|करें|करिए|करिये|कीजिए|कीजिये|करना|उठाओ|उठाएं|उठाइए|उठाना|पाठवा|पाठवावे|पाठवावेत|थांबवा|ठेवा|करा|द्या|घ्या|उचला|पाठव|थांबव|ठेव|भेजेगा|भेजेगी|रखेगा|रखेगी|रोकेगा|रोकेगी|करेगा|करेगी|उठाएगा|उठाएगी|पाठवेल|पाठवतील|पाठवाल|पाठवशील|ठेवेल|ठेवतील|ठेवाल|थांबवेल|थांबवतील|थांबवाल|करेल|करतील|कराल|करशील|घेईल|घेतील)(?![\p{L}\p{M}])/u;
+/** The speaker is the subject ("I will", "मैं", "मी … पाठवेन"). */
+const firstPersonSpeech = (numeric: string) =>
+  /[\u0900-\u097F]/u.test(numeric)
+    ? indicFirstPerson.test(numeric)
+    : englishFirstPerson.test(numeric);
+/** An instruction or a commitment for someone other than the speaker. */
+const otherPersonSpeech = (numeric: string) =>
+  /[\u0900-\u097F]/u.test(numeric)
+    ? indicOtherPerson.test(numeric)
+    : englishDelegation.test(numeric);
+/** A clause joined to the previous one shares its subject ("I'll send …, and hold …"). */
+const continuesClause =
+  /(?:,|\b(?:and|but|then)|(?<![\p{L}\p{M}])(?:और|आणि|लेकिन|पण|फिर|मग|तथा|व))\s*$/iu;
 /** Conditional wording, tested only after a clock phrase ("after 3 PM") is removed. */
 const conditionalMarker =
   /\b(?:until|till|unless|once|only after|only if|if|provided|providing|as soon as|on condition that|subject to|when|whenever|after|as long as|so long as|assuming|in case|depending on|depends on|given|pending|following|upon|on receipt|approv\w*|permission|clearance|sign-?off)\b|अगर|यदि|बशर्ते|शर्त|के\s*बाद|होने\s*पर|मिलने\s*पर|तभी|तरच|ते\s+ही(?![\p{L}\p{M}])|(?<![\p{L}\p{M}])(?:जर|तो|तर|जब|अट)(?![\p{L}\p{M}])|ल्यावर|ल्यानंतर|ल्यास(?![\p{L}\p{M}])|(?:ला|ली|ले|लं)\s+की(?![\p{L}\p{M}])|नंतर|ने\s*तक|पर्यंत/iu;
@@ -372,7 +422,7 @@ const explainedFunctionWords = new Set(
     // English pronouns, auxiliaries, articles and connectives.
     ...'i we you they he she it them this that these those the a an my our your their'.split(' '),
     ...`will shall am is are be going to please now then and also of for all both total`.split(' '),
-    ...`only just exactly here i'll we'll they'll it's ok okay item items`.split(' '),
+    ...`only just exactly i'll we'll they'll it's ok okay item items`.split(' '),
     // English gate words. Their prerequisite is read (or refused) by the condition rules.
     ...'until till unless once after when if provided providing as soon on condition'.split(' '),
     // Hindi pronouns, postpositions, particles and auxiliaries.
@@ -391,9 +441,19 @@ const explainedFunctionWords = new Set(
     ...'yes sure हाँ हां ठीक सर जरूर'.split(' '),
   ].map(normalizeText),
 );
-/** Supported work verbs and their inflections (any suffix on a supported stem). */
+/**
+ * Supported work verbs and their inflections (any suffix on a supported stem). Particles
+ * ("up", "out") are explained only directly after their own verb, by `verbParticles`;
+ * "back" and "aside" change the action ("send back", "set aside") and stay unexplained.
+ */
 const explainedVerb =
-  /^(?:send|sends|sending|dispatch|dispatches|dispatching|release|releases|releasing|ship|ships|shipping|leave|leaves|hold|holds|holding|keep|keeps|keeping|wait|waits|waiting|retain|retains|retaining|stay|remain|pack|packs|packing|prepare|prepares|preparing|wrap|wraps|wrapping|collect|collects|collecting|pick|picks|picking|up|out|back|aside)$|^(?:भेज|रोक|रुक|रख|पैक|पॅक|उठा|रवाना|डिस्पैच|डिस्पॅच|पाठव|थांब|ठेव|सोड|गोळा|घेऊन)/u;
+  /^(?:send|sends|sending|dispatch|dispatches|dispatching|release|releases|releasing|ship|ships|shipping|hold|holds|holding|keep|keeps|keeping|wait|waits|waiting|retain|retains|retaining|stay|remain|pack|packs|packing|prepare|prepares|preparing|wrap|wraps|wrapping|collect|collects|collecting)$|^(?:भेज|रोक|रुक|रख|पैक|पॅक|उठा|रवाना|डिस्पैच|डिस्पॅच|पाठव|थांब|ठेव|गोळा|घेऊन)/u;
+const verbParticles = new RegExp(
+  String.raw`\b(?:pick(?:s|ing)?\s*up|(?:send|sends|sending|ship|ships|shipping)\s+out)\b|${intransitiveLeave.source}`,
+  'giu',
+);
+/** "Send for packing", "ship for Nagpur": a purpose or recipient the rules do not read. */
+const sendFor = /\b(?:send|sends|sending|ship|ships|shipping|dispatch\w*|releas\w*)\s+for\b/iu;
 const prohibitedDispatchWords = new RegExp(
   `(?:${prohibitedDispatch.source})[\\p{L}\\p{M}]*`,
   'giu',
@@ -417,7 +477,7 @@ const earlyWordPatterns = new Map<string, RegExp>();
 function earlyBoundedWord(source: string): RegExp {
   let pattern = earlyWordPatterns.get(source);
   if (!pattern) {
-    if (earlyWordPatterns.size >= 4096) earlyWordPatterns.clear();
+    if (earlyWordPatterns.size >= 512) earlyWordPatterns.clear();
     pattern = new RegExp(letterBoundaryEarly(source), 'giu');
     earlyWordPatterns.set(source, pattern);
   }
@@ -434,9 +494,14 @@ function unexplainedWords(input: {
   clockTime: boolean;
   /** A self-correction between two numbers was accepted ("twelve, sorry, eight"). */
   correction: boolean;
+  /** Wording an issue already reported for its own field ("about" for a qualified count). */
+  reported?: RegExp[];
 }): string[] {
   // A supported prohibition ("do not send", "न भेजें", "नको पाठवू") is a hold, whole word included.
   let rest = input.text.replace(prohibitedDispatchWords, ' ');
+  for (const pattern of input.reported ?? []) rest = rest.replace(pattern, ' ');
+  const purpose = sendFor.test(rest);
+  rest = rest.replace(verbParticles, ' send ');
   if (input.correction)
     rest = rest.replace(/\b(?:sorry|actually|i mean|no)\b|माफ\s*(?:करो|करें|कीजिए|करा)?/giu, ' ');
   if (input.conditionTail) rest = rest.replace(input.conditionTail, ' ');
@@ -451,10 +516,11 @@ function unexplainedWords(input: {
   rest = rest.replace(/\bon\s+hold\b/giu, ' hold ');
   if (input.owner) {
     rest = rest.replace(/\b(?:owner is|assigned to|handled by)\b/giu, ' ');
+    // The owner is a transcript word: never cache a pattern compiled from it.
     for (const word of normalizeText(input.owner).split(' '))
-      rest = rest.replace(earlyBoundedWord(escape(word)), ' ');
+      rest = rest.replace(new RegExp(letterBoundaryEarly(escape(word)), 'giu'), ' ');
   }
-  return (rest.match(/[\p{L}\p{M}][\p{L}\p{M}'.]*/gu) ?? [])
+  const words = (rest.match(/[\p{L}\p{M}][\p{L}\p{M}'.]*/gu) ?? [])
     .map((word) => word.replace(/['.]+$/u, ''))
     .filter(
       (word) =>
@@ -463,6 +529,7 @@ function unexplainedWords(input: {
         !explainedVerb.test(word) &&
         !(input.clockTime && clockWords.has(word)),
     );
+  return purpose ? [...words, 'for'] : words;
 }
 
 export function actionFromText(text: string): WorkAction | undefined {
@@ -520,7 +587,7 @@ const wordPatterns = new Map<string, RegExp>();
 function boundedWord(form: string): RegExp {
   let pattern = wordPatterns.get(form);
   if (!pattern) {
-    if (wordPatterns.size >= 4096) wordPatterns.clear();
+    if (wordPatterns.size >= 512) wordPatterns.clear();
     pattern = new RegExp(letterBoundary(escape(form)), 'gu');
     wordPatterns.set(form, pattern);
   }
@@ -560,6 +627,9 @@ const hedgedAnswer = /\b(?:i think|i guess)\b/iu;
  */
 function isValueFragment(numeric: string, item: HandoverItem, field?: ClaimField): boolean {
   const rest = withoutAffirmation(withoutNames(numeric, item))
+    // A self-correction before the final number ("no, eight", "9, sorry, 8"); readQuantity
+    // keeps only the corrected count.
+    .replace(/\b(?:no|sorry|actually|i\s+mean)\b(?=[\s,.!]*\d)/giu, ' ')
     // A prerequisite tail is the value itself.
     .replace(gateTail, ' ')
     .replace(
@@ -664,7 +734,7 @@ function unknownIdentifier(text: string, items: HandoverItem[]): boolean {
 export function splitClauses(text: string): Evidence[] {
   // Work only with original-string offsets. Number normalisation never changes evidence.
   const separator =
-    /[.!?;।\n]+|,(?!\s*(?:sorry|no\b|actually|i mean|then\b|माफ|नाही|नहीं))|\b(?:and|but)\b(?=\s+(?:(?:i|we|they)\s+(?:will\s+)?|[\p{L}\p{M}]+\s+(?:will|shall)\s+)?(?:send|dispatch|release|ship|leave|hold|keep|wait|retain|pack|prepare|wrap|collect|pick\s+up)\b)|\s(?:और|आणि|लेकिन|पण)\s(?=(?:मैं|हम|मी|आम्ही)\s)/giu;
+    /[.!?;।\n]+|(?<!\b(?:sorry|actually|mean|no)|माफ|नाही|नहीं),(?!\s*(?:sorry|no\b|actually|i mean|then\b|माफ|नाही|नहीं))|\b(?:and|but)\b(?=\s+(?:(?:i|we|they)\s+(?:will\s+)?|[\p{L}\p{M}]+\s+(?:will|shall)\s+)?(?:send|dispatch|release|ship|leave|hold|keep|wait|retain|pack|prepare|wrap|collect|pick\s+up)\b)|\s(?:और|आणि|लेकिन|पण)\s(?=(?:मैं|हम|मी|आम्ही)\s)/giu;
   const spans: Evidence[] = [];
   let previous = 0;
   for (const match of text.matchAll(separator)) {
@@ -683,7 +753,9 @@ export function splitClauses(text: string): Evidence[] {
       /^[\d०-९]/.test(text.slice(end + 1))
     )
       continue;
-    push(previous, end);
+    // A question mark stays with its clause: "… after 3 PM?" and "8?" are questions.
+    const question = match[0].indexOf('?');
+    push(previous, question === -1 ? end : end + question + 1);
     previous = end + match[0].length;
   }
   push(previous, text.length);
@@ -710,6 +782,8 @@ export function timeFromClause(text: string): {
   cleaned: string;
   ambiguous: boolean;
   unsupportedBefore: boolean;
+  /** Where the read clock phrase is in `text`. */
+  span?: [number, number];
 } {
   const match = clockPrefix.exec(text) ?? clockSuffix.exec(text);
   const unsupportedBefore = /\bbefore\b/iu.test(text) && !/\bnot before\b/iu.test(text);
@@ -717,24 +791,89 @@ export function timeFromClause(text: string): {
   let hour = Number(match[1]);
   const minute = Number(match[2] ?? 0);
   const meridiem = match[3]?.replace(/\./g, '').toLowerCase();
-  const cleaned = text.replace(match[0], ' ');
-  if (hour > 23 || minute > 59 || (meridiem && (hour < 1 || hour > 12)))
-    return { cleaned, ambiguous: true, unsupportedBefore };
+  const span: [number, number] = [match.index, match.index + match[0].length];
+  // "दोपहर तीन बजे के बाद", "सकाळी तीन नंतर": the period word belongs to this time.
+  const period =
+    /(?:\b(?:morning|afternoon|evening)|(?<![\p{L}\p{M}])(?:सुबह|सवेरे|दोपहर|शाम|रात|सकाळी?|दुपारी?|संध्याकाळी?|रात्री))\s*$/iu.exec(
+      text.slice(0, span[0]),
+    );
+  if (period) span[0] = period.index;
+  const cleaned = `${text.slice(0, span[0])} ${text.slice(span[1])}`;
+  if (
+    hour > 23 ||
+    minute > 59 ||
+    (meridiem && (hour < 1 || hour > 12)) ||
+    // "after 3 PM AM": two periods for one time.
+    (meridiem && /^\s*(?:am|pm|a\.m|p\.m)(?![\p{L}\p{N}])/iu.test(text.slice(span[1])))
+  )
+    return { cleaned, ambiguous: true, unsupportedBefore, span };
   const morning = /\b(?:morning|dawn)\b|सुबह|सवेरे|प्रातः|सकाळ/iu.test(text);
   const afternoon = /\b(?:afternoon|evening)\b|दोपहर|दुपार|शाम|संध्याकाळ/iu.test(text);
   if ((morning && afternoon) || (meridiem === 'pm' && morning) || (meridiem === 'am' && afternoon))
-    return { cleaned, ambiguous: true, unsupportedBefore };
+    return { cleaned, ambiguous: true, unsupportedBefore, span };
   if (meridiem) hour = (hour % 12) + (meridiem === 'pm' ? 12 : 0);
   else if (morning && hour <= 12) hour %= 12;
   else if (afternoon && hour <= 12) hour = (hour % 12) + 12;
   else if (hour > 0 && hour <= 12 && !(match[1]!.length === 2 && match[2] !== undefined))
-    return { cleaned, ambiguous: true, unsupportedBefore };
+    return { cleaned, ambiguous: true, unsupportedBefore, span };
   return {
     time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
     cleaned,
     ambiguous: false,
     unsupportedBefore,
+    span,
   };
+}
+
+/**
+ * Every number in a clause that reads as a time, a time limit or a duration rather than a
+ * count: "8 PM", "8 बजे", "आठ वाजता", "by 8", "until 8", "8 बजे तक", "शाम आठ", "8:30",
+ * "8 hours", "आठ दिवसांत". Such a number is never a quantity, and one beside the time that was
+ * read is a second time.
+ */
+export interface ClockSpan {
+  start: number;
+  end: number;
+  kind: 'clock' | 'limit' | 'duration';
+}
+const spanNumber = String.raw`(?<![\p{L}\p{N}.:])\d{1,2}(?::\d{2})?(?![\p{N}.:]\d)(?!\p{N})`;
+const spanMeridiem = String.raw`(?:am|pm|a\.m\.?|p\.m\.?|o'?clock)(?![\p{L}\p{N}])`;
+const clockSpanPatterns: [RegExp, ClockSpan['kind']][] = [
+  [
+    new RegExp(
+      String.raw`${spanNumber}\s*(?:(?:hours?|hrs?|minutes?|mins?|days?|weeks?|months?|घंटे|घंटा|घंटों|मिनट|दिन|दिनों|हफ्ते|हफ्तों)(?![\p{L}\p{M}])|(?:तास|मिनिट|दिवस|आठवड|महिन|महीन)[\p{L}\p{M}]*)`,
+      'giu',
+    ),
+    'duration',
+  ],
+  [
+    new RegExp(
+      String.raw`\b(?:before|by|until|till|unless|within)\s+(?:(?:it\s+is|it's)\s+)?(?:exactly\s+)?${spanNumber}(?:\s*${spanMeridiem})?|${spanNumber}\s*(?:(?:${spanMeridiem}|बजे|वाजे|वाजता)\s*)?(?:(?:के\s*)?(?:पहले|पूर्व)|तक|(?:च्या\s*)?(?:आधी|पूर्वी|अगोदर))(?![\p{L}\p{M}])|${spanNumber}\s*(?:बजे|वाजे)?\s*पर्यंत`,
+      'giu',
+    ),
+    'limit',
+  ],
+  [
+    new RegExp(
+      String.raw`${spanNumber}\s*(?:${spanMeridiem}|(?:बजे|बजकर|वाजता|वाजे)(?![\p{L}\p{M}])|वाजल्या[\p{L}\p{M}]*|(?:के\s*)?बाद(?![\p{L}\p{M}])|नंतर)|\d{1,2}:\d{2}|\b(?:after|at|past|from|since|not\s+before)\s+(?:exactly\s+)?${spanNumber}|(?:\b(?:morning|afternoon|evening|night|tonight)|(?<![\p{L}\p{M}])(?:सुबह|सवेरे|दोपहर|शाम|रात|सकाळी?|दुपारी?|संध्याकाळी?|रात्री))\s+${spanNumber}`,
+      'giu',
+    ),
+    'clock',
+  ],
+];
+export function clockSpans(numeric: string): ClockSpan[] {
+  const spans: ClockSpan[] = [];
+  for (const [pattern, kind] of clockSpanPatterns)
+    for (const match of numeric.matchAll(pattern)) {
+      const start = match.index;
+      const end = start + match[0].length;
+      const overlapping = spans.find((span) => span.start < end && start < span.end);
+      if (overlapping) {
+        overlapping.start = Math.min(overlapping.start, start);
+        overlapping.end = Math.max(overlapping.end, end);
+      } else spans.push({ start, end, kind });
+    }
+  return spans;
 }
 
 const ownerStopwords = new Set(
@@ -969,6 +1108,10 @@ export function readQuantity(text: string): QuantityReading {
   if (
     /\b(?:about|roughly|around|approximately|approx|nearly|almost|at least|at most|more than|less than|up to|over|under)\b|लगभग|करीब|साधारण|अंदाजे|किमान|कमाल|कम\s*से\s*कम|जास्तीत\s*जास्त/iu.test(
       value,
+    ) ||
+    // "eight more", "another 8", "आठ और", "और आठ", "आणखी आठ": a count on top of others.
+    /\d\s*(?:more|extra|additional|further)\b|\b(?:another|more|extra|additional|further)\s+\d|\d\s*(?:और|ज्यादा|जादा|अधिक|अजून|आणखी|जास्त)(?![\p{L}\p{M}])|(?<![\p{L}\p{M}])(?:और|अजून|आणखी|अधिक|ज्यादा|जास्त)\s*\d/iu.test(
+      value,
     )
   )
     add(
@@ -1001,6 +1144,8 @@ export function readQuantity(text: string): QuantityReading {
         /(?<![\p{L}\p{M}\p{N}])[\p{L}\p{M}\p{N}]+(?:[-\u2010\u2011][\p{L}\p{M}\p{N}]+)+/gu,
       ) ?? []
     ).some((token) => /\d/.test(token)) ||
+    // A number cut off by a dash ("8-", "8 –"): the rest of the number was not said.
+    /\d\s*[-\u2010\u2011\u2013\u2014]+(?!\s*[\p{L}\p{M}\p{N}])/u.test(value) ||
     // A count glued to letters ("8k", "8x", "8th"), except a clock suffix ("3pm").
     /(?<![\p{L}\p{M}\p{N}])\d+(?!(?:am|pm|a\.m|p\.m)(?![\p{L}\p{M}\p{N}]))[\p{L}\p{M}]/u.test(
       value,
@@ -1038,6 +1183,68 @@ export function readQuantity(text: string): QuantityReading {
       'Use a positive quantity; removing an item is a separate reviewed change.',
     );
   return { ...(quantity !== undefined ? { quantity } : {}), issues };
+}
+
+/**
+ * Count wording that a quantity issue already reports ("about", "more than", "dozen",
+ * "लगभग", "आणखी"). A collective that changes the work ("in two batches", "pairs") is not here.
+ */
+const reportedQuantityWords = new RegExp(
+  letterBoundaryEarly(
+    'about|roughly|around|approximately|approx|nearly|almost|at\\s+least|at\\s+most|more\\s+than|less\\s+than|up\\s+to|over|under|more|extra|additional|further|another|minus|negative|hundred|thousand|million|billion|lakh|lac|crore|dozens?|half|quarter|twice|thrice|double|triple|लगभग|करीब|साधारण|अंदाजे|किमान|कमाल|कम\\s*से\\s*कम|जास्तीत\\s*जास्त|और|ज्यादा|जादा|अधिक|अजून|आणखी|जास्त|माइनस|उणे|सौ|हजार|लाख|करोड|दर्जन|शंभर|कोटी|डझन|आधा|अर्धा|दीड|सव्वा|सवा|पाव|पौने|पावणे|साढे|साडे|डेढ|ढाई|अढाई|अडीच',
+  ),
+  'giu',
+);
+
+/** Stands in for a removed item ID in quantity text: an anchor, never a letter or digit. */
+const idMark = '\uE000';
+const anchorPatterns = new WeakMap<HandoverItem[], { after: RegExp; before: RegExp }>();
+/**
+ * Whether the count readQuantity accepted (the last number) is said next to an item name,
+ * an ID or a unit: directly before it ("eight Nagpur parcels", "8 of the parcels", "एक पार्सल
+ * J1") or, at the very end of the clause, directly after it ("Nagpur parcels: 8"). A number
+ * after "item", "no.", "bay", "route" and the like is an identifier.
+ */
+function anchoredQuantity(quantityText: string, items: HandoverItem[]): boolean {
+  let anchors = anchorPatterns.get(items);
+  if (!anchors) {
+    const names = [
+      ...new Set(
+        items
+          .flatMap((item) => [item.label, ...item.aliases])
+          .flatMap((name) => [normalizeText(name), normalizeNumbers(name)])
+          .filter(Boolean),
+      ),
+    ]
+      .sort((a, b) => b.length - a.length)
+      .map(escape)
+      .join('|');
+    const anchor = `(?:${names ? `${names}|` : ''}${unitWords}|${idMark})`;
+    anchors = {
+      after: new RegExp(
+        // One describing word may come between ("आठ नए नागपुर पार्सल"); the closed-world
+        // check reports it. A preposition there ("8 to Nagpur") leaves the count open.
+        `^\\s*(?:of\\s+(?:the\\s+)?|the\\s+)?(?:(?!(?:to|from|for|in|at|by|on|per|each|times|x|से|को|ला|ते)(?![\\p{L}\\p{M}]))[\\p{L}\\p{M}]+\\s+)?${anchor}(?![\\p{L}\\p{M}\\p{N}])`,
+        'iu',
+      ),
+      before: new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])${anchor}\\s*[:,-]?\\s*$`, 'iu'),
+    };
+    anchorPatterns.set(items, anchors);
+  }
+  const value = normalizeNumbers(quantityText);
+  const last = [...value.matchAll(/(?<![\p{L}\p{N}])\d+(?:\.\d+)?(?![\p{L}\p{N}])/gu)].at(-1);
+  if (!last) return false;
+  const before = value.slice(0, last.index);
+  const after = value.slice(last.index + last[0].length);
+  if (
+    /(?<![\p{L}\p{M}])(?:item|items|no|number|num|#|bay|route|gate|dock|door|shelf|rack|lane|platform|truck|van|slot|crate|order|batch|क्रमांक|नंबर|नम्बर|नं)\s*[.:#-]?\s*$/iu.test(
+      before,
+    )
+  )
+    return false;
+  return (
+    anchors.after.test(after) || (/^[\s.,!?;:।'"]*$/u.test(after) && anchors.before.test(before))
+  );
 }
 
 /** Extract grounded claims without ever mutating the manager's confirmed plan. */
@@ -1091,6 +1298,8 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
   // A reply with its own action and other wording ("send 8 now") is a full statement,
   // never a short answer completed from the earlier read-back.
   let shortAnswer = true;
+  // Whether the previous clause's subject was the speaker.
+  let speakerBefore = false;
   for (const span of clauses) {
     const evidence = { ...span, utteranceId };
     // "बिना शर्त" / "unconditionally" states that there is no prerequisite; it is not a negation.
@@ -1193,6 +1402,12 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       );
 
     const action = actionFromText(normal);
+    // A short answer that only gives the asked value ("8", "send 8", "Meena").
+    const valueReply =
+      !!answerField &&
+      (fragment ||
+        !!ownerReply ||
+        (!!action && isActionWithValue(numeric, answerItem!, answerField)));
     const actionKinds = [
       prohibitedDispatch.test(normal) || holdMarker.test(normal),
       dispatchMarker.test(normal.replace(prohibitedDispatchAll, ' ')),
@@ -1240,15 +1455,58 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'COMPLETED_ACTION',
         'This may describe completed work. Say what you intend to do next.',
       );
+    // A question ("…after 3 PM?", "Will I send…", "8?", "Meena?", "…पाठवेन का?") asks
+    // about the plan; it never states the worker's intent or a value.
     if (
+      /\?\s*$/u.test(span.text) ||
+      /^(?:(?:so|ok|okay|and|then)\s*,?\s+)?(?:will|am|is|are|would|must|shall|should|could|can|do|does|may)\s+(?:i|we|it|they|you|he|she)\b/iu.test(
+        normal,
+      ) ||
+      /(?<![\p{L}\p{M}])(?:का|क्या)\s*[?.।!]*$/u.test(normal) ||
       /\b(?:should|could|can|shall|do|may)\s+(?:i|we)\b|^(?:(?!(?<![\p{L}\p{M}])क्या(?![\p{L}\p{M}])).)*(?<![\p{L}\p{M}])क्या(?![\p{L}\p{M}]).*(?:भेज|रख|पैक)|(?:पाठवू|ठेवू)\s*का/iu.test(
         normal,
       )
     )
       uncertain(
-        'action',
+        fragment || ownerReply ? answerField! : 'action',
         'QUESTION_NOT_INTENT',
         'This is a question about the plan. State your intended next action after it is clarified.',
+      );
+    // "Send …", "Please send …", "You/He/They will send …", "आप … भेजेंगे", "तुम्ही … पाठवा":
+    // an instruction to someone else is not the incoming worker's own commitment, unless an
+    // owner is named ("Pack twelve blue cartons assigned to Ravi"). Never consults the plan.
+    const speaker: boolean =
+      firstPersonSpeech(numeric) ||
+      (speakerBefore && continuesClause.test(text.slice(0, span.start)));
+    speakerBefore = speaker;
+    if (
+      input.role === 'incoming' &&
+      !valueReply &&
+      !speaker &&
+      otherPersonSpeech(numeric) &&
+      !statedOwner(span.text, input.items).owner
+    )
+      uncertain(
+        'owner',
+        'ADDRESSED_TO_OTHER',
+        'This sounds like an instruction to someone else. Say what you will do (“I will …”), or name who is responsible.',
+      );
+    // "Send … until / unless / till …", "8 बजे तक भेजूंगा": the gate ends or excuses a hold;
+    // said for any other action it may mean the opposite of a release prerequisite.
+    if (action && action !== 'hold' && untilGate.test(normal)) {
+      uncertain(
+        'condition',
+        'INVERTED_GATE',
+        '“Until” or “unless” with this action may mean the opposite of a release prerequisite. Say what must happen before release, or hold the item until then.',
+      );
+      if (!uncertainFields.includes('notBefore')) uncertainFields.push('notBefore');
+    }
+    // "… until the address is confirmed and.": the statement stops mid-way.
+    if (danglingConjunction.test(normal))
+      uncertain(
+        'condition',
+        'COMPOUND_CONDITION',
+        'This statement ends with “and” or a similar word. Repeat the whole instruction with every prerequisite.',
       );
     if (
       /\b(?:yesterday|tomorrow|last week|next week)\b|(?<![\p{L}\p{M}])(?:कल|परसों|परसो|उद्या|काल|परवा)(?![\p{L}\p{M}])/iu.test(
@@ -1295,11 +1553,13 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
     let clock = timeFromClause(numeric);
     // "3 PM", "8 o'clock" or "शाम 4 बजे" in a short answer is a time whatever was asked;
     // "20 parcels" never is. A bare number answering the time question stays ambiguous.
+    // "until 3 PM", "by 3", "3 बजे तक" or "in 3 hours" is never an earliest release time.
     if (
       fragment &&
       !clock.time &&
       !clock.ambiguous &&
       /\d/.test(numeric) &&
+      !clockSpans(numeric).some((span) => span.kind !== 'clock') &&
       !/\d\s*(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs|पार्सल|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|तुकडे)/iu.test(
         numeric,
       )
@@ -1339,25 +1599,70 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         'UNSUPPORTED_BEFORE_TIME',
         'A latest-time statement does not establish the required earliest release time. Clarify when release may begin.',
       );
-    // Remove IDs, and names that contain digits ("Route 8"), before reading
-    // quantities: they are identifiers, not amounts.
+    // Every other time, time limit or duration in the clause ("the 8 PM parcels after 3 PM",
+    // "8 बजे तक", "in 8 hours"): never a count, and never silently dropped.
+    const otherTimes = clockSpans(clock.cleaned);
+    if (otherTimes.some((span) => span.kind === 'duration'))
+      uncertain(
+        'notBefore',
+        'UNSUPPORTED_DURATION',
+        'A duration does not say when release may begin. Say the earliest release time, for example “after 3 PM”.',
+      );
+    if (otherTimes.some((span) => span.kind !== 'duration')) {
+      if (clock.time || clock.ambiguous)
+        uncertain(
+          'notBefore',
+          'MULTIPLE_TIMES',
+          'More than one time was heard. Repeat the instruction with only the earliest release time.',
+        );
+      else if (!clock.unsupportedBefore)
+        uncertain(
+          'notBefore',
+          'UNSUPPORTED_TIME_EXPRESSION',
+          'This time wording does not say when release may begin. Say the earliest release time, for example “after 3 PM”.',
+        );
+    }
+    // Remove times, IDs, and names that contain digits ("Route 8"), before reading
+    // quantities: they are identifiers, not amounts. An ID stays as an anchor mark.
     let quantityText = clock.cleaned;
+    for (const span of [...otherTimes].sort((a, b) => b.start - a.start))
+      quantityText = `${quantityText.slice(0, span.start)} ${quantityText.slice(span.end)}`;
     const names = input.items.flatMap((item) => [
       item.id,
       ...[item.label, ...item.aliases].filter((name) => /\d/.test(normalizeNumbers(name))),
     ]);
     for (const name of names.sort((a, b) => b.length - a.length))
       for (const form of new Set([normalizeText(name), normalizeNumbers(name)]))
-        quantityText = quantityText.replace(boundedWord(form), ' ');
+        quantityText = quantityText.replace(boundedWord(form), ` ${idMark} `);
     const reading = readQuantity(quantityText);
     for (const { code, message } of reading.issues) uncertain('quantity', code, message);
-    const quantity = reading.quantity;
-
-    const unitMatch =
-      /\b(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs)\b|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|टुकडे|तुकडे/iu.exec(
-        normal,
+    let quantity = reading.quantity;
+    // A count is read only next to its item or unit ("eight Nagpur parcels", "J1 one
+    // parcel"), or as the value of a short answer ("8", "send 8"). "Nagpur parcels to 8
+    // shops", "from bay 8" or "item 8 Nagpur parcels" leave the count open.
+    if (quantity !== undefined && !valueReply && !anchoredQuantity(quantityText, input.items)) {
+      quantity = undefined;
+      uncertain(
+        'quantity',
+        'UNANCHORED_QUANTITY',
+        'This number is not said together with the item or its unit, so it may not be the count. Say the count with the item, for example “eight Nagpur parcels”.',
       );
+    }
+
+    const unitMatches = [
+      ...normal.matchAll(
+        /\b(?:parcels?|packages?|boxes|box|cartons?|pieces?|pcs)\b|पार्सल(?:्स)?|पैकेट|पॅकेट|बॉक्स|कार्टन|नग|टुकड़े|टुकडे|तुकडे/giu,
+      ),
+    ];
+    const unitMatch = unitMatches[0];
     const unit = unitMatch ? canonicalUnit(unitMatch[0]) : undefined;
+    // "Parcels of boxes", "parcel boxes": two units for one count.
+    if (new Set(unitMatches.map((match) => canonicalUnit(match[0]))).size > 1)
+      uncertain(
+        'unit',
+        'AMBIGUOUS_UNIT',
+        'More than one unit was heard. Say the one unit for this count.',
+      );
     if (
       targets.length > 1 &&
       explicitIds.length === 0 &&
@@ -1494,19 +1799,44 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
       );
     const owner = heardOwner.owner ?? ownerReply;
 
-    // Closed world: a clean claim needs every word to be accounted for by the rules.
-    // A value-only short answer already passed its own closed-world check (isValueFragment).
-    if (uncertainFields.length === 0 && !fragment) {
+    // "Until the address is confirmed in the truck": an address prerequisite with more words
+    // than the rules read. The extra words may change the action, so the item is restated.
+    const addressExtra = conditionTail
+      ?.split(conditionConjunction)
+      .find(
+        (part) =>
+          addressWord.test(part) &&
+          confirmWord.test(part) &&
+          !isBareAddressConfirmation(part) &&
+          !testEnglishNegation(part) &&
+          !indicNegation.test(part),
+      );
+    if (addressExtra)
+      uncertain(
+        'condition',
+        'UNEXPLAINED_WORDING',
+        `The local rules could not account for all of "${addressExtra.slice(0, 60)}". Repeat the instruction with a supported action, time and prerequisite.`,
+      );
+
+    // Closed world: a clean claim needs every word to be accounted for by the rules. The
+    // check runs even when another detail is already unclear, so that answering that one
+    // detail can never make the rest of the statement disappear ("… to Pune", "… in two
+    // batches"). A value-only short answer already passed its own closed-world check.
+    if (!fragment && !addressExtra) {
       const leftover = unexplainedWords({
         text: timeFree,
         items: input.items,
         owner,
         conditionTail,
         addressCondition: condition === 'address confirmed',
-        clockTime: !!clock.time,
+        clockTime: !!clock.time || clock.ambiguous || otherTimes.length > 0,
         correction:
           quantity !== undefined &&
           (quantityText.match(/(?<![\p{L}\p{N}])\d+(?![\p{L}\p{N}])/gu) ?? []).length > 1,
+        reported: [
+          ...(reading.issues.length ? [reportedQuantityWords] : []),
+          ...(clock.unsupportedBefore ? [/\bbefore\b/giu] : []),
+        ],
       });
       if (leftover.length > 0) {
         const gate = conditionalMarker.exec(timeFree) ?? gateMarker.exec(timeFree);
@@ -1519,7 +1849,7 @@ export function parseTranscript(input: ParseTranscriptInput): ParsedTranscript {
         uncertain(
           leftover.some((word) => ownerWords.has(word))
             ? 'owner'
-            : gate && gate.index < at
+            : gate && gate.index <= at
               ? 'condition'
               : 'action',
           'UNEXPLAINED_WORDING',

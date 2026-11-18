@@ -22,13 +22,10 @@ const joshiClaims = (state: HandoverState) =>
 
 describe('supported Hindi/Marathi prohibitions mean hold, never dispatch', () => {
   it.each([
-    ['hi-IN', 'दो जोशी पार्सल पता कन्फर्म होने तक न भेजें।'],
     ['hi-IN', 'मैं दो जोशी पार्सल पता कन्फर्म होने तक न भेजूंगा।'],
     ['hi-IN', 'मैं दो जोशी पार्सल पता कन्फर्म होने तक नहीं भेजूंगा।'],
     ['hi-IN', 'मैं दो जोशी पार्सल जब तक पता कन्फर्म नहीं होता तब तक नहीं भेजूंगा।'],
     ['hi-IN', 'मैं दो जोशी पार्सल जब तक पता कन्फर्म न हो जाए तब तक रोक कर रखूंगा।'],
-    ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल पाठवू नका.'],
-    ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल नको पाठवू.'],
     ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल पाठवायचे नाहीत.'],
     ['mr-IN', 'मी दोन जोशी पार्सल पत्त्याची पुष्टी होईपर्यंत पाठवणार नाही.'],
     ['mr-IN', 'मी दोन जोशी पार्सल पत्ता कन्फर्म होईपर्यंत न पाठवता ठेवेन.'],
@@ -40,6 +37,21 @@ describe('supported Hindi/Marathi prohibitions mean hold, never dispatch', () =>
     ]);
     expect(status(state, 'J1')).toBe('agreement');
     expect(status(state, 'J2')).toBe('agreement');
+  });
+
+  // Rules v5: an imperative prohibition is an instruction to someone else, not the incoming
+  // worker's own commitment. It still means hold, never dispatch, but stays unresolved.
+  it.each([
+    ['hi-IN', 'दो जोशी पार्सल पता कन्फर्म होने तक न भेजें।'],
+    ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल पाठवू नका.'],
+    ['mr-IN', 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल नको पाठवू.'],
+  ] as [Language, string][])('imperative %s: %s', (language, text) => {
+    const state = readback(language, text);
+    expect(codes(state)).toEqual(['ADDRESSED_TO_OTHER']);
+    expect(joshiClaims(state).map((claim) => [claim.action, claim.condition])).toEqual([
+      ['hold', 'address confirmed'],
+    ]);
+    expect(status(state, 'J1')).toBe('uncertainty');
   });
 
   it.each([
@@ -334,9 +346,11 @@ describe('model guard rejects claims that drop a Hindi/Marathi negation', () => 
 
   it('still accepts a faithful hold for a supported Marathi prohibition', () => {
     const text = 'पत्त्याची पुष्टी होईपर्यंत दोन जोशी पार्सल पाठवू नका.';
+    // Rules v5: the imperative is addressed to someone else, so the owner stays open.
     const body = joshiClaim(text, {
       action: 'hold',
       condition: 'address confirmed',
+      uncertainFields: ['owner'],
       fieldEvidence: {
         object: 'जोशी',
         action: 'पाठवू नका',

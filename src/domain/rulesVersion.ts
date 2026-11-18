@@ -9,7 +9,7 @@ import type { ParseIssue, ParsedClaim } from './types';
  * stamp is treated as version 0 (outdated). See `revalidation.ts` for how saved
  * approvals are rechecked when state is loaded, imported or restored.
  */
-export const INTERPRETATION_RULES_VERSION = 4;
+export const INTERPRETATION_RULES_VERSION = 5;
 
 /** Stamp a newly produced interpretation with the rules that produced or validated it. */
 export function stampInterpretation<T extends object>(parsed: T): T & { rulesVersion: number } {
@@ -51,6 +51,13 @@ export const CRITICAL_INTERPRETATION_ISSUE_CODES: readonly string[] = [
   'UNRECOGNISED_OBJECT',
   'AMBIGUOUS_GROUP',
   'UNEXPLAINED_WORDING',
+  'MULTIPLE_TIMES',
+  'UNSUPPORTED_TIME_EXPRESSION',
+  'UNSUPPORTED_DURATION',
+  'UNANCHORED_QUANTITY',
+  'AMBIGUOUS_UNIT',
+  'INVERTED_GATE',
+  'ADDRESSED_TO_OTHER',
 ];
 
 /**

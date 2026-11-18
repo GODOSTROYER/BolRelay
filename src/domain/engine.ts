@@ -1,4 +1,11 @@
-import { canonicalCondition, canonicalUnit, normalizeText, parseTranscript } from './parser';
+import {
+  canonicalCondition,
+  canonicalUnit,
+  hasUntilGate,
+  normalizeText,
+  parseTranscript,
+  statesProhibition,
+} from './parser';
 import { revalidateInterpretations, type RevalidationOptions } from './revalidation';
 import { stampInterpretation } from './rulesVersion';
 import {
@@ -642,6 +649,58 @@ const answerableFields: Record<ClaimField, ClaimField[]> = {
   owner: ['owner'],
 };
 
+/**
+ * Issues a short answer can resolve: each concerns one detail, and the words that raised it
+ * belong to that detail ("about 8", "after 3", "until the address isn't confirmed"). Any
+ * other issue on the earlier read-back (wording the rules could not account for, a
+ * question, a negation, completed work, competing actions, a second time, an instruction
+ * to someone else, a gate that may invert) covers the whole statement: a one-word answer
+ * would erase it, so the worker must restate the item in full.
+ */
+const fragmentAnswerable = new Set([
+  'AMBIGUOUS_TIME',
+  'UNSUPPORTED_BEFORE_TIME',
+  'QUALIFIED_QUANTITY',
+  'AMBIGUOUS_QUANTITY',
+  'UNSUPPORTED_QUANTITY_EXPRESSION',
+  'NEGATIVE_QUANTITY',
+  'INVALID_QUANTITY',
+  'UNANCHORED_QUANTITY',
+  'AMBIGUOUS_UNIT',
+  'UNRECOGNISED_ACTION',
+  'UNRECOGNISED_CONDITION',
+  'COMPOUND_CONDITION',
+  'AMBIGUOUS_HOLD_CONDITION',
+  'NEGATED_PREREQUISITE',
+  'AMBIGUOUS_OWNER',
+  'BARE_ACKNOWLEDGEMENT',
+  'NO_ANSWER_VALUE',
+  'ANSWER_FOR_OTHER_DETAIL',
+  'UNCERTAIN_ANSWER',
+]);
+const needsRestatement = (issues: ParseIssue[]) =>
+  issues.some((issue) => !fragmentAnswerable.has(issue.code));
+
+/**
+ * Whether the item's current read-back has an issue no short answer may resolve, so the
+ * guide asks for the whole item again instead of one detail.
+ */
+export function needsFullRestatement(state: HandoverState, itemId: string): boolean {
+  const item = state.items.find((candidate) => candidate.id === itemId);
+  const readback = state.readbacks[itemId];
+  return (
+    !!item &&
+    !!readback &&
+    readback.itemRevision === item.revision &&
+    !readback.claims.some((claim) => claim.basis) &&
+    needsRestatement(
+      readback.issues.filter(
+        (issue) => issue.itemIds.length === 0 || issue.itemIds.includes(itemId),
+      ),
+    )
+  );
+}
+
 /** Every field the answer did not supply is unchanged from the earlier claim it completes. */
 function inheritsFrom(claim: ParsedClaim, basis: ParsedClaim): boolean {
   const fields = claim.basis?.fields ?? [];
@@ -677,6 +736,14 @@ export function mergeShortAnswer(
     parsed.claims.length > 1 ||
     (answer && (stable(answer.itemIds) !== stable([itemId]) || answer.basis)) ||
     answer?.uncertainFields.includes('object') ||
+    // Whole-statement uncertainty in a full read-back is never answered by a fragment.
+    (!basis.basis && needsRestatement(basisIssues)) ||
+    // "I will not send eight …", then "send": the count and time were said under a
+    // negation, so a one-word reversal never inherits them.
+    (!!answer?.action &&
+      !!basis.action &&
+      answer.action !== basis.action &&
+      statesProhibition(basis.evidence.text)) ||
     // Earlier uncertainty must stay visible unless this answer addresses it.
     basisIssues.some(
       (issue) =>
@@ -716,6 +783,18 @@ export function mergeShortAnswer(
         )
       : [];
   otherFields.push(...reopened);
+  // "Until 3 PM", "unless the manager approves" said for an item the worker sends: the
+  // gate may mean the opposite of a release prerequisite. Only a hold is ended by "until".
+  const inverted =
+    !!answer &&
+    (fields.includes('action') ? answer.action : basis.action) !== 'hold' &&
+    fields.some((field) => field === 'condition' || field === 'notBefore') &&
+    hasUntilGate(answer.evidence.text);
+  const invertedFields = inverted
+    ? (['condition', 'notBefore'] as const).filter(
+        (field) => !fields.includes(field) && !otherFields.includes(field),
+      )
+    : [];
   const evidence = answer?.evidence ??
     bare?.evidence ?? {
       utteranceId: parsed.utteranceId,
@@ -731,13 +810,13 @@ export function mergeShortAnswer(
     basis: {
       utteranceId: basisUtteranceId,
       claimId: basis.id,
-      fields: [...fields, ...otherFields],
+      fields: [...fields, ...otherFields, ...invertedFields],
     },
   };
   for (const field of valueFields) {
     const source = fields.includes(field)
       ? answer
-      : otherFields.includes(field)
+      : otherFields.includes(field) || (invertedFields as ClaimField[]).includes(field)
         ? undefined
         : basis;
     if (source?.[field] !== undefined) Object.assign(merged, { [field]: source[field] });
@@ -750,11 +829,32 @@ export function mergeShortAnswer(
         : basis.uncertainFields.includes(field))
     )
       merged.uncertainFields.push(field);
+  if (inverted)
+    for (const field of ['condition', 'notBefore'] as const)
+      if (!merged.uncertainFields.includes(field)) merged.uncertainFields.push(field);
   // The item is known in a one-item clarification: an unusable reply ("Nagpur",
   // "banana") keeps the earlier statement and asks the same detail again.
   const issues = parsed.issues.map((issue) =>
     issue.field === 'object' ? { ...issue, field: parsed.answerField! } : issue,
   );
+  // An earlier issue on a detail this answer did not supply stays visible with that detail.
+  for (const issue of basisIssues)
+    if (
+      !fields.includes(issue.field) &&
+      merged.uncertainFields.includes(issue.field) &&
+      !issues.some((kept) => kept.code === issue.code && kept.field === issue.field)
+    )
+      // Evidence must quote this answer; the earlier words stay shown through the basis.
+      issues.push({ ...issue, itemIds: [itemId], evidence });
+  if (inverted && !issues.some((issue) => issue.code === 'INVERTED_GATE'))
+    issues.push({
+      code: 'INVERTED_GATE',
+      message:
+        '“Until” or “unless” with this action may mean the opposite of a release prerequisite. Say what must happen before release, or hold the item until then.',
+      itemIds: [itemId],
+      field: 'condition',
+      evidence,
+    });
   // A detail outside the question is neither accepted nor allowed to stand unchallenged.
   for (const field of otherFields)
     issues.push(

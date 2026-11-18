@@ -91,7 +91,9 @@ describe('exclusions are never inverted into a claim about the excluded item', (
     expect(parsed.claims).toEqual([]);
   });
 
-  it('keeps the Marathi release verb "सोडून द्या" as a dispatch, not an exclusion', () => {
+  it('keeps the Marathi "सोडून देईन" an unresolved action, never an exclusion', () => {
+    // Rules v5: "सोडून देणे" usually means leave or abandon, so it is no longer read as a
+    // dispatch; it stays unresolved instead of becoming either a release or an exclusion.
     const parsed = parseTranscript({
       text: 'मी एक पार्सल J1 सोडून देईन.',
       role: 'incoming',
@@ -99,7 +101,8 @@ describe('exclusions are never inverted into a claim about the excluded item', (
       items: createDemoHandover().items,
     });
     expect(parsed.issues.map((issue) => issue.code)).not.toContain('UNSUPPORTED_EXCLUSION');
-    expect(parsed.claims[0]).toMatchObject({ itemIds: ['J1'], action: 'dispatch' });
+    expect(parsed.claims[0]).toMatchObject({ itemIds: ['J1'], action: undefined });
+    expect(parsed.claims[0]!.uncertainFields).toContain('action');
   });
 
   it('blocks a draft whose instruction is stated as an exclusion', () => {
