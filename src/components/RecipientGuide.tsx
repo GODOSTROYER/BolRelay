@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { ArrowRight, Check, CircleHelp } from 'lucide-react';
 import { clarificationAttempts, clarificationField } from '../domain/engine';
 import type { HandoverState, ItemComparison, Language } from '../domain/types';
@@ -6,6 +7,13 @@ import { SpeakButton } from './SpeakButton';
 
 /** After this many unresolved answers to the same question, offer a way out instead of looping. */
 const CLARIFICATION_ATTEMPT_LIMIT = 3;
+const scrollMotion = (): ScrollBehavior =>
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+// Space to leave above a scrolled-to step, below a notification pinned to the top.
+const topInset = () => {
+  const toast = document.querySelector('.toast')?.getBoundingClientRect();
+  return toast && toast.top < window.innerHeight / 2 ? toast.bottom + 8 : 12;
+};
 
 export function RecipientGuide({
   state,
@@ -51,15 +59,71 @@ export function RecipientGuide({
           .find((event) => event.type === 'item-revised' && event.itemIds.includes(item.id))
       : undefined;
   const before = change?.before?.find((previous) => previous.id === item?.id);
+  const answering = !!scope && scope === item?.id;
+  const sectionRef = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const currentRef = useRef<HTMLDivElement>(null);
+  // After a read-back, confirmation or instruction change, bring the new step
+  // into view and move focus to its heading instead of leaving the worker at
+  // the bottom of the page beside the composer they just used.
+  const stepKey = [
+    complete,
+    heard,
+    current?.itemId,
+    current?.status,
+    current?.stale,
+    current?.confirmed,
+    item?.revision,
+    state.utterances.length,
+  ].join(':');
+  const previousStep = useRef({ id: state.id, key: stepKey });
+  useEffect(() => {
+    const previous = previousStep.current;
+    previousStep.current = { id: state.id, key: stepKey };
+    if (previous.id !== state.id || previous.key === stepKey) return;
+    const section = sectionRef.current;
+    if (!section) return;
+    const top = section.getBoundingClientRect().top;
+    const inset = topInset();
+    if (top < inset || top > window.innerHeight / 3)
+      window.scrollBy({ top: top - inset, behavior: scrollMotion() });
+    headingRef.current?.focus({ preventScroll: true });
+  }, [state.id, stepKey]);
+  // When the view opens on an open item, show the whole current card. When the
+  // worker starts answering a clarification, keep its question above the field.
+  const shown = useRef(false);
+  useEffect(() => {
+    const opening = !shown.current;
+    if (!opening && !answering) return;
+    const timer = window.setTimeout(() => {
+      shown.current = true;
+      const anchor = currentRef.current?.getBoundingClientRect();
+      if (!anchor) return;
+      const field = opening
+        ? undefined
+        : document.getElementById('incoming-transcript')?.getBoundingClientRect();
+      const bar = field
+        ? (document.querySelector('.composer-actions')?.getBoundingClientRect().height ?? 0)
+        : 0;
+      const inset = topInset();
+      const room = window.innerHeight - bar - 12;
+      const bottom = field?.bottom ?? anchor.bottom;
+      if (opening && anchor.top >= inset && bottom <= room) return;
+      const shift = bottom - anchor.top + inset <= room ? anchor.top - inset : bottom - room;
+      if (Math.abs(shift) > 4) window.scrollBy({ top: shift, behavior: scrollMotion() });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [answering, item?.id]);
   return (
     <section
+      ref={sectionRef}
       className={`recipient-guide ${complete ? 'is-complete' : ''}`}
       aria-label={ui(language, 'workerView')}
       data-testid="recipient-guide"
     >
       <div className="guide-heading">
         {complete ? <Check size={23} /> : <CircleHelp size={23} />}
-        <h2>
+        <h2 ref={headingRef} tabIndex={-1}>
           {ui(
             language,
             complete
@@ -92,7 +156,7 @@ export function RecipientGuide({
         </ul>
       </details>
       {!complete && heard && item && current && (
-        <div className="guide-current">
+        <div className="guide-current" ref={currentRef}>
           <strong>{item.label}</strong>
           {change && before && (
             <div className="change-receipt" data-testid="change-receipt">
