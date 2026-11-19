@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowRight, Check, LoaderCircle, Mic, Square } from 'lucide-react';
 import { createReviewedHandover, draftInstructions, type InstructionDraft } from '../domain/draft';
 import type { HandoverItem, HandoverState, Language } from '../domain/types';
@@ -9,24 +9,36 @@ import { Modal } from './Modal';
 import { SpeakButton } from './SpeakButton';
 import { LANGUAGE_LABELS } from './VoiceComposer';
 
+/** Typed text kept by the app while the dialog is closed (for example across a reload). */
+export interface SpokenHandoverDraft {
+  text: string;
+  title: string;
+  outgoingName: string;
+  incomingName: string;
+}
+
 export function SpokenHandover({
   onClose,
   onManual,
   onCreate,
   initialLanguage = 'en-IN',
+  initialDraft,
+  onDraftChange,
 }: {
   onClose: () => void;
   onManual: () => void;
   onCreate: (state: HandoverState, audio: CapturedAudio | null) => Promise<void>;
   initialLanguage?: Language;
+  initialDraft?: SpokenHandoverDraft;
+  onDraftChange?: (draft: SpokenHandoverDraft) => void;
 }) {
   const [language, setLanguage] = useState<Language>(initialLanguage);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialDraft?.text ?? '');
   const [audio, setAudio] = useState<CapturedAudio | null>(null);
   const [draft, setDraft] = useState<InstructionDraft | null>(null);
-  const [title, setTitle] = useState('');
-  const [outgoingName, setOutgoingName] = useState('');
-  const [incomingName, setIncomingName] = useState('');
+  const [title, setTitle] = useState(initialDraft?.title ?? '');
+  const [outgoingName, setOutgoingName] = useState(initialDraft?.outgoingName ?? '');
+  const [incomingName, setIncomingName] = useState(initialDraft?.incomingName ?? '');
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -36,6 +48,9 @@ export function SpokenHandover({
     setAudio,
     `create:${language}:${draft ? 'review' : 'capture'}`,
   );
+  useEffect(() => {
+    onDraftChange?.({ text, title, outgoingName, incomingName });
+  }, [onDraftChange, text, title, outgoingName, incomingName]);
   const valid = !!draft && !draft.problems.length && draft.items.length > 0;
   const proposed =
     draft?.items

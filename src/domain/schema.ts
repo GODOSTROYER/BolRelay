@@ -55,6 +55,9 @@ export const parsedClaimSchema = z.object({
   owner: shortText.nullable().optional(),
   uncertainFields: z.array(field).max(7),
   evidence: evidenceSchema,
+  basis: z
+    .object({ utteranceId: identifier, claimId: identifier, fields: z.array(field).max(7) })
+    .optional(),
 });
 
 export const parseIssueSchema = z.object({
@@ -77,13 +80,18 @@ const parsedShape = {
   parser: z.enum(['local-rules', 'model']),
   readbackMode: z.enum(['full', 'targeted']).optional(),
   scopeItemIds: z.array(identifier).min(1).max(100).optional(),
+  answerField: field.optional(),
   itemRevisions: z.record(identifier, revision),
   claims: z.array(parsedClaimSchema).max(100),
   issues: z.array(parseIssueSchema).max(100),
   limitations: z.array(z.string().max(1_000)).max(20),
 };
 export const parsedTranscriptSchema: z.ZodType<ParsedTranscript> = z.object(parsedShape);
-const utteranceSchema = z.object({ ...parsedShape, createdAt: timestamp });
+const utteranceSchema = z.object({
+  ...parsedShape,
+  createdAt: timestamp,
+  rulesVersion: z.number().int().min(0).max(1_000_000).optional(),
+});
 
 export const handoverStateSchema: z.ZodType<HandoverState> = z
   .object({
@@ -121,10 +129,22 @@ export const handoverStateSchema: z.ZodType<HandoverState> = z
     ),
     recheckNotice: z
       .object({
-        reason: z.literal('legacy-interpretation'),
+        reason: z.enum(['legacy-interpretation', 'interpretation-rules-changed']),
         itemIds: z.array(identifier).min(1).max(100),
         createdAt: timestamp,
       })
+      .optional(),
+    sourceReview: z
+      .array(
+        z.object({
+          itemId: identifier,
+          itemRevision: revision,
+          utteranceId: identifier,
+          reviewed: z.boolean(),
+          createdAt: timestamp,
+        }),
+      )
+      .max(500)
       .optional(),
     events: z
       .array(
@@ -150,10 +170,26 @@ export const handoverStateSchema: z.ZodType<HandoverState> = z
     createdAt: timestamp,
     updatedAt: timestamp,
   })
-  .transform((state) => ({
-    ...state,
-    participantLanguages: state.participantLanguages ?? {
-      outgoing: state.language,
-      incoming: state.language,
-    },
-  }));
+  // Keeps the schema's key order, so a parse of already parsed data serializes
+  // identically (saved data is compared as text to decide whether it changed).
+  .transform(
+    ({
+      schemaVersion,
+      id,
+      title,
+      outgoingName,
+      incomingName,
+      language,
+      participantLanguages,
+      ...rest
+    }) => ({
+      schemaVersion,
+      id,
+      title,
+      outgoingName,
+      incomingName,
+      language,
+      participantLanguages: participantLanguages ?? { outgoing: language, incoming: language },
+      ...rest,
+    }),
+  );

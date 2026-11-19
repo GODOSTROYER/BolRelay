@@ -247,7 +247,7 @@ describe('model extraction boundary', () => {
       const body = output();
       body.claims[0].evidenceQuote = source;
       expect(() => validateModelOutput(body, { ...input(), text: source })).toThrow(
-        /ambiguity|conflicting/,
+        /ambiguity|conflicting|quantity is not supported/,
       );
     },
   );

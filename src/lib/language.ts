@@ -1,4 +1,12 @@
-import type { ClaimField, Finding, HandoverItem, ItemComparison, Language } from '../domain/types';
+import { clarificationAttempts, clarificationField, needsFullRestatement } from '../domain/engine';
+import type {
+  ClaimField,
+  Finding,
+  HandoverItem,
+  HandoverState,
+  ItemComparison,
+  Language,
+} from '../domain/types';
 
 const copy = {
   heading: [
@@ -93,6 +101,7 @@ const copy = {
   clarify: ['Clarify read-back', 'योजना स्पष्ट करें', 'योजना स्पष्ट करा'],
   clarifyTitle: ['A detail needs clarification', 'एक बात स्पष्ट करनी है', 'एक बाब स्पष्ट करायची आहे'],
   confirmed: ['Confirmed', 'पुष्टि हो गई', 'पुष्टी झाली'],
+  nextItem: ['Next', 'अगला', 'पुढे'],
   confirm: ['Confirm', 'पुष्टि करें', 'पुष्टी करा'],
   confirmAll: ['Confirm handover', 'पूरी योजना की पुष्टि करें', 'संपूर्ण योजनेची पुष्टी करा'],
   matches: ['Matches', 'मेल खाता है', 'जुळते'],
@@ -163,11 +172,63 @@ const copy = {
     'एक सामान की जाँच: बाकी सही पुष्टियाँ बनी रहेंगी।',
     'एका वस्तूची तपासणी: इतर योग्य पुष्ट्या कायम राहतील.',
   ],
+  bareReplyHint: [
+    'A “yes” or “okay” cannot answer this.',
+    '“हाँ” या “ठीक है” से इसका जवाब नहीं मिलता।',
+    '“हो” किंवा “ठीक आहे” यावरून याचे उत्तर मिळत नाही.',
+  ],
+  typeInstead: ['You can also type the answer.', 'आप जवाब लिख भी सकते हैं।', 'तुम्ही उत्तर लिहूही शकता.'],
+  stillUnclear: [
+    'This is still unclear after several tries. Ask the sender to go through this item with you, or review it on the full board.',
+    'कई बार कोशिश के बाद भी यह साफ़ नहीं है। काम सौंपने वाले से यह सामान साथ में जाँचें, या पूरे बोर्ड पर देखें।',
+    'अनेक प्रयत्नांनंतरही हे स्पष्ट नाही. काम सोपवणाऱ्यासोबत ही वस्तू तपासा, किंवा संपूर्ण फलकावर पाहा.',
+  ],
+  reviewOnBoard: ['Review on the full board', 'पूरे बोर्ड पर देखें', 'संपूर्ण फलकावर पाहा'],
+  restateItem: [
+    'Part of what you said could not be checked, so one word cannot fix it. Say the whole instruction for this item again: what you will do, how many, when, and anything that must happen first.',
+    'आपकी बात का कुछ हिस्सा जाँचा नहीं जा सका, इसलिए एक शब्द से यह ठीक नहीं होगा। इस सामान का पूरा निर्देश फिर से बोलें: क्या करेंगे, कितने, कब, और पहले क्या होना ज़रूरी है।',
+    'तुम्ही सांगितलेला काही भाग तपासता आला नाही, म्हणून एका शब्दाने हे सुटणार नाही. या वस्तूची संपूर्ण सूचना पुन्हा सांगा: काय कराल, किती, केव्हा, आणि आधी काय व्हायला हवे.',
+  ],
 } as const;
 
 export type CopyKey = keyof typeof copy;
 export function ui(language: Language, key: CopyKey): string {
   return copy[key][language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0];
+}
+
+// Two languages, one plan: names and wording for comparisons across languages.
+const languageNames: Record<Language, readonly [string, string, string]> = {
+  'en-IN': ['English', 'अंग्रेज़ी', 'इंग्रजी'],
+  'hi-IN': ['Hindi', 'हिंदी', 'हिंदी'],
+  'mr-IN': ['Marathi', 'मराठी', 'मराठी'],
+};
+const pick = (language: Language) => (language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0);
+/** The name of `named`, written in the `language` of the person reading it. */
+export function languageName(named: Language, language: Language): string {
+  return languageNames[named][pick(language)];
+}
+/** Sidebar label for the synthetic two-language example. */
+export function crossLanguageExampleLabel(
+  outgoing: Language,
+  incoming: Language,
+  language: Language,
+): string {
+  const pair = `${languageName(outgoing, language)} → ${languageName(incoming, language)}`;
+  return [`${pair} example`, `${pair} उदाहरण`, `${pair} उदाहरण`][pick(language)]!;
+}
+/** A short note that the instruction and the read-back were compared across two languages. */
+export function languagePairNote(
+  instruction: Language,
+  readback: Language,
+  language: Language,
+): string {
+  const a = languageName(instruction, language);
+  const b = languageName(readback, language);
+  return [
+    `Instruction in ${a} · read-back in ${b} · compared as one plan`,
+    `निर्देश: ${a} · जवाब: ${b} · दोनों एक ही योजना से मिलाए गए`,
+    `सूचना: ${a} · उत्तर: ${b} · दोन्ही एकाच योजनेशी पडताळले`,
+  ][pick(language)]!;
 }
 
 export function conditionLabel(value: string, language: Language): string {
@@ -246,7 +307,7 @@ export function clarificationQuestion(
   result: ItemComparison,
   language: Language,
 ): string {
-  const field = result.findings[0]?.field;
+  const field = clarificationField(result);
   const questions: Record<ClaimField, [string, string, string]> = {
     object: [
       'Which item do you mean? Say its name or printed ID.',
@@ -275,4 +336,81 @@ export function clarificationQuestion(
   if (result.stale || !field)
     return `${item.label}. ${ui(language, result.stale ? 'updated' : 'readyToSpeak')}. ${ui(language, 'inputHint')}`;
   return `${item.label}. ${questions[field][language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0]}`;
+}
+
+/** The question currently shown for an item: reworded once it was answered without resolving it. */
+export function currentQuestion(
+  state: HandoverState,
+  item: HandoverItem,
+  result: ItemComparison,
+  language: Language,
+): string {
+  const field = clarificationField(result);
+  if (field && field !== 'object' && needsFullRestatement(state, item.id))
+    return restateQuestion(item, language);
+  const { attempts, bareReply } = field
+    ? clarificationAttempts(state, item.id)
+    : { attempts: 0, bareReply: false };
+  return field && attempts > 0
+    ? retryQuestion(item, field, bareReply, language)
+    : clarificationQuestion(item, result, language);
+}
+
+/**
+ * The read-back has wording a short answer cannot resolve (unexplained words, a question,
+ * a negation, a second time): ask for the whole item again, never for one detail.
+ */
+export function restateQuestion(item: HandoverItem, language: Language): string {
+  return `${item.label}. ${ui(language, 'restateItem')}`;
+}
+
+/**
+ * A different wording for a question that was already answered without resolving
+ * it, so the worker is not shown the same prompt again. Never reveals the expected value.
+ */
+export function retryQuestion(
+  item: HandoverItem,
+  field: ClaimField,
+  bareReply: boolean,
+  language: Language,
+): string {
+  const prompts: Record<ClaimField, [string, string, string]> = {
+    object: [
+      'Say the item name or printed ID together with what you will do.',
+      'सामान का नाम या लिखा हुआ आईडी, और उसके साथ क्या करेंगे, बोलें।',
+      'वस्तूचे नाव किंवा छापलेला आयडी आणि तिचे काय कराल ते सांगा.',
+    ],
+    quantity: [
+      'Say just the number, and the unit if you know it.',
+      'सिर्फ संख्या बोलें, और पता हो तो इकाई भी।',
+      'फक्त संख्या सांगा, आणि माहीत असल्यास एककही.',
+    ],
+    unit: [
+      'Say just the unit: parcels, boxes, cartons or pieces.',
+      'सिर्फ इकाई बोलें: पार्सल, बॉक्स, कार्टन या नग।',
+      'फक्त एकक सांगा: पार्सल, बॉक्स, कार्टन किंवा नग.',
+    ],
+    action: [
+      'Say the action in one word — send, hold, pack or collect — and anything that must happen first.',
+      'काम एक शब्द में बोलें — भेजना, रोकना, पैक करना या लेना — और पहले क्या होना ज़रूरी है।',
+      'काम एका शब्दात सांगा — पाठवणे, थांबवणे, पॅक करणे किंवा घेणे — आणि आधी काय व्हायला हवे.',
+    ],
+    notBefore: [
+      'Say just the earliest start time, with AM or PM.',
+      'सिर्फ सबसे पहले शुरू होने का समय बोलें, सुबह या दोपहर/शाम के साथ।',
+      'फक्त सर्वात आधी सुरू होण्याची वेळ सांगा, सकाळ की दुपार/संध्याकाळ यासह.',
+    ],
+    condition: [
+      'Say just what must happen first, starting with “until”.',
+      'सिर्फ बताएं कि पहले क्या होना ज़रूरी है, जैसे “… होने तक”।',
+      'फक्त आधी काय व्हायला हवे ते सांगा, जसे “… होईपर्यंत”.',
+    ],
+    owner: [
+      'Say just the name of the responsible person.',
+      'सिर्फ जिम्मेदार व्यक्ति का नाम बोलें।',
+      'फक्त जबाबदार व्यक्तीचे नाव सांगा.',
+    ],
+  };
+  const index = language === 'hi-IN' ? 1 : language === 'mr-IN' ? 2 : 0;
+  return `${item.label}. ${bareReply ? `${ui(language, 'bareReplyHint')} ` : ''}${prompts[field][index]} ${ui(language, 'typeInstead')}`;
 }

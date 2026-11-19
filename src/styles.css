@@ -755,6 +755,11 @@ strong {
   border-radius: 6px;
   margin-bottom: 10px;
 }
+.scope-note [data-testid='scope-question'] {
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}
 .scope-note button {
   display: grid;
   place-items: center;
@@ -2843,5 +2848,89 @@ strong {
   }
   .modal-actions .button {
     white-space: normal;
+  }
+}
+
+/* Mobile recipient flow: keep the current question and its next action on screen. */
+.recipient-guide {
+  scroll-margin-top: 12px;
+}
+.guide-heading h2:focus {
+  outline: none;
+}
+.guide-heading h2:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+/* Without a matching voice, say so once instead of under every listen button. */
+.recipient-guide:has(> .spoken-control > .field-help) .guide-actions .spoken-control > .field-help {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .main-content.is-guided .steps {
+    display: none;
+  }
+  .main-content.is-guided .page-header {
+    margin-bottom: 14px;
+  }
+  .main-content.is-guided .workspace-view-toggle {
+    margin: 0 0 12px;
+  }
+  .main-content.is-guided ~ .toast {
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    bottom: auto;
+  }
+  .guided-workspace .composer {
+    padding-top: 12px;
+  }
+  .guided-workspace .role-tabs {
+    margin-top: 0;
+  }
+  /* Reserve the sticky bar and any on-screen keyboard when the field scrolls into view. */
+  .guided-workspace .composer textarea {
+    scroll-margin-bottom: calc(84px + var(--keyboard-inset, 0px));
+  }
+  .guided-workspace .composer {
+    margin-bottom: var(--keyboard-inset, 0px);
+  }
+  .guided-workspace .participant-row {
+    margin: 12px 0 10px;
+  }
+  .guided-workspace .composer textarea {
+    min-height: 112px;
+  }
+  .guided-workspace .recipient-guide {
+    padding-block: 15px;
+  }
+  .guided-workspace .guide-heading {
+    margin-bottom: 10px;
+  }
+  .guided-workspace .guide-current {
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+  .guided-workspace .recipient-guide > .field-help {
+    margin-top: 10px;
+  }
+  /* Record and check stay reachable above the safe area and on-screen keyboard. */
+  .guided-workspace .composer-actions {
+    position: sticky;
+    bottom: var(--keyboard-inset, 0px);
+    z-index: 5;
+    margin-inline: -8px;
+    padding: 10px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: #fff;
+    box-shadow: 0 -1px 0 var(--border);
+  }
+  /* With little room above an on-screen keyboard, pinned actions would cover the
+     field being typed in; they follow the field instead, Check right below it. */
+  :root[data-short-viewport] .guided-workspace .composer:focus-within .composer-actions {
+    position: static;
+    box-shadow: none;
+  }
+  :root[data-short-viewport] .guided-workspace .composer textarea {
+    scroll-margin-bottom: calc(8px + var(--keyboard-inset, 0px));
   }
 }

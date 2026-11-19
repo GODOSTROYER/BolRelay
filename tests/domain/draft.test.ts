@@ -94,7 +94,10 @@ describe('fresh spoken handover creation', () => {
     'Send Pune parcels after 9 AM.',
     'Hold three Mehta parcels.',
     'Send zero Pune parcels.',
-    'Send twenty one Pune parcels.',
+    // "twenty one" is now composed to 21 (see p0-compound-numbers.test.ts);
+    // number wording that is not composed must still block creation.
+    'Send fourty one Pune parcels.',
+    'Send thirty-first Pune parcels.',
     'Send one hundred Pune parcels.',
     'Send five dozen Pune parcels.',
     'Send 2.5 Pune boxes.',

@@ -12,8 +12,13 @@ import {
   normalizeNumbers,
   normalizeText,
   parseTranscript,
+  readQuantity,
+  splitClauses,
   timeFromClause,
 } from '../src/domain/parser.ts';
+import { isCriticalIssue } from '../src/domain/rulesVersion.ts';
+import { allItemsMarker } from '../src/domain/markers.ts';
+import { misattributesLocalStatement, modelClaimConflict } from '../src/domain/modelGuard.ts';
 
 export const extractionRequestSchema = z
   .object({
@@ -123,13 +128,53 @@ Keep evidenceQuote VERBATIM, unmodified, from the original transcript, including
 Account for every clause, including contradictory or alternative actions: every word must occur within at least one claim or issue evidenceQuote. Do not quote only the compliant half of an instruction. Treat unclear day periods as uncertain, without inferring a time from context you were not given. Canonicalise explicit address confirmation to "address confirmed"; checking an address is not necessarily confirmation. Preserve other prerequisites in their original language. Do not merge hold-until with dispatch-without-prerequisite. A promise to send ALL includes held items too; it must not be silently made compliant. Resolve named groups to their constituent IDs, and preserve aggregate quantities.
 Supported languages: English, Hindi and Marathi. Translate field values carefully, but keep quoted evidence in the original language. Do not manufacture confidence percentages. If a transcript is outside this bounded task, return issues and no invented claims.`;
 
+/**
+ * The quoted quantity must read as exactly the claimed count with the parser's
+ * own rules, and it must not be a fragment of a larger number expression in
+ * its source quote ("eight" inside "thirty eight", "8" inside "38" or "1,008",
+ * "eight" after "a hundred and").
+ */
+function quantityEvidenceSupports(sourceQuote: string, quote: string, quantity: number): boolean {
+  if (readQuantity(quote).quantity !== quantity) return false;
+  const word = /[\p{L}\p{M}\p{N}]/u;
+  const joiner = '(?:[\\s\\-\\u2010\\u2011]+|(?<=\\d)[,.](?=\\d))';
+  const before = new RegExp(
+    `(?<![\\p{L}\\p{M}\\p{N}])(?:[\\p{L}\\p{M}\\p{N}]+${joiner}){0,2}$`,
+    'u',
+  );
+  const after = new RegExp(`^(?:${joiner}[\\p{L}\\p{M}\\p{N}]+){0,2}`, 'u');
+  for (let at = sourceQuote.indexOf(quote); at >= 0; at = sourceQuote.indexOf(quote, at + 1)) {
+    const head = sourceQuote.slice(0, at);
+    const tail = sourceQuote.slice(at + quote.length);
+    if (word.test(head.at(-1) ?? '') || word.test(tail[0] ?? '')) return false;
+    if (/\d[,.]$/u.test(head) || /^[,.]\d/u.test(tail)) return false;
+    const context = `${before.exec(head)![0]}${quote}${after.exec(tail)![0]}`;
+    if (readQuantity(context).quantity !== quantity) return false;
+  }
+  return true;
+}
+
 export function validateModelOutput(raw: unknown, input: ExtractionRequest): ParsedTranscript {
   const result = modelOutput.parse(raw);
   const allowed = new Set(input.scopeItemIds ?? input.items.map((i) => i.id));
+  // Bound the local re-parsing work a response can demand: distinct quotes may not
+  // add up to much more than the transcript, and each distinct text is parsed once.
+  const quotes = new Set([
+    ...result.claims.map((claim) => claim.evidenceQuote),
+    ...result.issues.map((issue) => issue.evidenceQuote),
+  ]);
+  if ([...quotes].reduce((sum, quote) => sum + quote.length, 0) > 2 * input.text.length)
+    throw new Error('Model evidence quotes are longer than the transcript allows.');
+  const parsedTexts = new Map<string, ParsedTranscript>();
+  const parseText = (text: string) => {
+    if (!parsedTexts.has(text)) parsedTexts.set(text, parseTranscript({ ...input, text }));
+    return parsedTexts.get(text)!;
+  };
   // Check the complete source as well as each selected quote. Otherwise a
   // provider could move a modifier into an unrelated issue and quote only the
   // compliant remainder for this item.
-  const wholeSource = parseTranscript(input);
+  const wholeSource = parseText(input.text);
+  const clauses = splitClauses(input.text);
   const covered = new Uint8Array(input.text.length);
   function evidence(quote: string): Evidence {
     const start = input.text.indexOf(quote);
@@ -145,7 +190,7 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
   const claims = result.claims.map(({ evidenceQuote, fieldEvidence, ...claim }, index) => {
     checkIds(claim.itemIds);
     const source = evidence(evidenceQuote);
-    const local = parseTranscript({ ...input, text: evidenceQuote });
+    const local = parseText(evidenceQuote);
     const acknowledgement = normalizeText(evidenceQuote)
       .replace(/[\s.!?,;।]+/gu, ' ')
       .trim();
@@ -159,6 +204,49 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
       if (!evidenceQuote.includes(quote))
         throw new Error(`Model ${field} evidence is outside its source quote.`);
     }
+    // A quote may span clauses about different items. Every field must come from one
+    // clause (as the local parser splits it) that also contains the object evidence.
+    const word = /[\p{L}\p{N}]/u;
+    const bounded = (at: number, needle: string) =>
+      (!word.test(needle[0]!) || !word.test(input.text[at - 1] ?? '')) &&
+      (!word.test(needle.at(-1)!) || !word.test(input.text[at + needle.length] ?? ''));
+    const within = (start: number, end: number, quote: string, whole: boolean) => {
+      const needle = quote.replace(/^[\s.!?;:,।]+|[\s.!?;:,।]+$/gu, '');
+      if (!needle) return false;
+      for (
+        let at = input.text.indexOf(needle, start);
+        at >= 0;
+        at = input.text.indexOf(needle, at + 1)
+      ) {
+        if (at + needle.length > end) return false;
+        if (!whole || bounded(at, needle)) return true;
+      }
+      return false;
+    };
+    const clause = clauses.find((span) => {
+      const start = Math.max(span.start, source.start);
+      const end = Math.min(span.end, source.end);
+      return (
+        start < end &&
+        within(start, end, fieldEvidence.object, true) &&
+        Object.entries(fieldEvidence).every(
+          ([field, quote]) => field === 'object' || within(start, end, quote, false),
+        )
+      );
+    });
+    if (!clause)
+      throw new Error(
+        'Model field evidence must come from the same clause as the words naming its items.',
+      );
+    if (
+      claim.quantity !== undefined &&
+      parseText(clause.text).claims.some((candidate) =>
+        candidate.itemIds.some((id) => !claim.itemIds.includes(id)),
+      )
+    )
+      throw new Error(
+        'Model quantity comes from a clause that also names other items; state each count separately.',
+      );
     for (const field of [
       'action',
       'quantity',
@@ -179,7 +267,7 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
       });
     };
     const allObjects =
-      /\b(?:all|everything|both)\b|सभी|सगळे|सर्व/iu.test(objectText) &&
+      allItemsMarker.test(objectText) &&
       claim.itemIds.length === input.items.length &&
       input.items.every((item) => claim.itemIds.includes(item.id));
     const implicitScoped =
@@ -194,20 +282,13 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
       throw new Error('Model object evidence does not identify the referenced items.');
     if (claim.action !== undefined && actionFromText(fieldEvidence.action!) !== claim.action)
       throw new Error('Model action is not supported by its field evidence.');
-    if (claim.quantity !== undefined) {
-      const numbers = [
-        ...normalizeNumbers(fieldEvidence.quantity!).matchAll(
-          /(?<![\p{L}\p{N}])\d+(?:\.\d+)?(?![\p{L}\p{N}])/gu,
-        ),
-      ].map((m) => Number(m[0]));
-      const corrected = /\b(?:sorry|actually|i mean|no)\b|माफ|नाही|नहीं/iu.test(
-        fieldEvidence.quantity!,
+    if (
+      claim.quantity !== undefined &&
+      !quantityEvidenceSupports(evidenceQuote, fieldEvidence.quantity!, claim.quantity)
+    )
+      throw new Error(
+        'Model quantity is not supported by its field evidence; repeat the number explicitly.',
       );
-      if ((numbers.length !== 1 && !corrected) || numbers.at(-1) !== claim.quantity)
-        throw new Error(
-          'Model quantity is not supported by its field evidence; repeat the number explicitly.',
-        );
-    }
     if (
       claim.unit !== undefined &&
       canonicalUnit(fieldEvidence.unit!) !== canonicalUnit(claim.unit)
@@ -234,45 +315,29 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
     const criticalIssues = [...local.issues, ...wholeSource.issues].filter(
       (issue) =>
         (issue.itemIds.length === 0 || issue.itemIds.some((id) => claim.itemIds.includes(id))) &&
-        ([
-          'UNKNOWN_OBJECT_IDENTIFIER',
-          'OUTSIDE_CLARIFICATION_SCOPE',
-          'COMPETING_ACTIONS',
-          'AMBIGUOUS_TIME',
-          'UNSUPPORTED_BEFORE_TIME',
-          'NEGATED_PREREQUISITE',
-          'UNHANDLED_NEGATION',
-          'UNSUPPORTED_NEGATION',
-          'COMPLETED_ACTION',
-          'QUESTION_NOT_INTENT',
-          'UNCERTAIN_INTENT',
-          'UNSUPPORTED_DATE',
-          'NEGATIVE_QUANTITY',
-          'QUALIFIED_QUANTITY',
-          'UNSUPPORTED_QUANTITY_EXPRESSION',
-          'AMBIGUOUS_QUANTITY',
-          'INVALID_QUANTITY',
-        ].includes(issue.code) ||
-          (issue.code === 'UNRECOGNISED_OBJECT' &&
-            /\b(?:send|dispatch|release|ship|hold|pack|collect)\b/iu.test(issue.evidence.text))),
+        isCriticalIssue(issue),
     );
     if (criticalIssues.some((issue) => !claim.uncertainFields.includes(issue.field)))
       throw new Error(
         'Model interpretation suppresses a source ambiguity or conflicting statement.',
       );
-    const localClaims = local.claims.filter((candidate) =>
-      candidate.itemIds.some((id) => claim.itemIds.includes(id)),
+    // The local reading of the same quote bounds every field: each item must be tied to
+    // this quote locally, a field the local rules mark uncertain must stay uncertain, and
+    // a stated value must equal every local value for the item (an omitted time,
+    // prerequisite or owner would otherwise read as agreement with a plan that has none).
+    // Shared with offline revalidation of stored model readings.
+    const conflict = modelClaimConflict(
+      claim,
+      local.claims.filter((candidate) =>
+        candidate.itemIds.some((id) => claim.itemIds.includes(id)),
+      ),
     );
-    if (
-      claim.action &&
-      localClaims.some(
-        (candidate) =>
-          candidate.action &&
-          candidate.action !== claim.action &&
-          !claim.uncertainFields.includes('action'),
-      )
-    )
-      throw new Error('Model action conflicts with the stated source action.');
+    if (conflict === 'object')
+      throw new Error('Model object is not the item the source quote names.');
+    if (conflict)
+      throw new Error(
+        `Model ${({ notBefore: 'time', condition: 'prerequisite' } as Record<string, string>)[conflict] ?? conflict} differs from the local reading of its source.`,
+      );
     return {
       ...claim,
       id: `${input.utteranceId}-claim-${index + 1}`,
@@ -293,6 +358,16 @@ export function validateModelOutput(raw: unknown, input: ExtractionRequest): Par
       );
     sourceOffset += character.length;
   }
+  // Every clause the local rules attribute to an item must be quoted by a claim or
+  // issue for that item; a provider may not park it in an issue for another item.
+  if (
+    misattributesLocalStatement(input.text, wholeSource.claims, claims, issues, (id) =>
+      allowed.has(id),
+    )
+  )
+    throw new Error(
+      'Model evidence attributes part of a statement about an item to a different item.',
+    );
   return parsedTranscriptSchema.parse({
     utteranceId: input.utteranceId,
     text: input.text,

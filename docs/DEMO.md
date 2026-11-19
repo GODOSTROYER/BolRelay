@@ -77,6 +77,17 @@ For each language, start a fresh example, select that language, then choose **A 
 | Hindi    | मैं आठ नागपुर पार्सल दोपहर तीन बजे के बाद भेजूंगा। मैं दो जोशी पार्सल जब तक पता कन्फर्म नहीं होता तब तक रोक कर रखूंगा। |
 | Marathi  | मी आठ नागपूर पार्सल दुपार तीन नंतर पाठवेन. मी दोन जोशी पार्सल जोपर्यंत पत्त्याची पुष्टी होत नाही तोपर्यंत थांबवेन.    |
 
+## Two languages, one plan
+
+The instruction and the read-back are each reduced to the same structured claims (item, quantity, action, time, condition), so the check does not require both people to use one language. This is the same synthetic Nagpur/Joshi example; label it as synthetic.
+
+1. Choose **Hindi → Marathi example** in the sidebar (below **Load example**; on a narrow screen, open navigation first). The outgoing instruction is the Hindi text `आठ नागपुर पार्सल दोपहर तीन बजे के बाद भेजना। दो जोशी पार्सल पता कन्फर्म होने तक रोक कर रखना।`; the incoming worker's language is Marathi, so the screen and questions are in Marathi.
+2. The example opens with the mistaken Marathi read-back `मी सर्व दहा पार्सल दुपार तीन नंतर पाठवेन.` already checked. Nagpur matches; J1 and J2 need clarification. Each card quotes the Hindi instruction and the worker's Marathi words, and asks its question in Marathi. A small note reads **सूचना: हिंदी · उत्तर: मराठी · दोन्ही एकाच योजनेशी पडताळले** (“Instruction in Hindi · read-back in Marathi · compared as one plan”). It appears only when the stored instruction and read-back languages differ.
+3. Choose **A correct read-back** (it fills the Marathi corrected read-back), then **Check read-back**. All three items match; choose **Confirm handover**.
+4. Choose **Change to dispatch** on **Joshi · J1** and confirm the change. Enter `मी एक पार्सल J1 पाठवेन.`, choose **Check read-back**, then **Confirm** on J1. All three items are confirmed again.
+
+What this shows: the same bounded rules read the Hindi instruction and the Marathi read-back, and the board compares what each says about each item. It is not general translation: the app never produces a Marathi rendering of the Hindi sentence, and wording outside the supported phrasing stays unresolved in either language. After J1 is changed with the board button, its new instruction has no spoken source, so the language note no longer applies to J1.
+
 ## Rehearsal checklist
 
 - Check the selected speech language and browser support before presenting.

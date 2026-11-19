@@ -1,5 +1,6 @@
 import { createHandover, restoreHandover } from './engine';
 import { canonicalUnit, normalizeNumbers, parseTranscript } from './parser';
+import { stampInterpretation } from './rulesVersion';
 import type {
   CreateHandoverInput,
   HandoverItem,
@@ -199,6 +200,6 @@ export function createReviewedHandover(
   const state = createHandover({ ...details, language: fresh.language, items: fresh.items });
   return restoreHandover({
     ...state,
-    utterances: [{ ...fresh.parsed, createdAt: state.createdAt }],
+    utterances: [{ ...stampInterpretation(fresh.parsed), createdAt: state.createdAt }],
   });
 }

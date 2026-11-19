@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { handoverStateSchema } from '../domain/schema';
-import { restoreHandover } from '../domain/engine';
+import { isRestoredHandover, restoreHandover, type RestoreOptions } from '../domain/engine';
 import type { HandoverState } from '../domain/types';
 
 export const STORAGE_KEY = 'bolrelay.workspace.v1';
@@ -11,7 +11,87 @@ const workspaceSchema = z.object({
   version: z.literal(1),
   handovers: z.array(handoverStateSchema).max(40),
   activeId: z.string().nullable(),
+  // Additive: saved data from before cross-tab protection has no counter and reads as 0.
+  writeCount: z.number().int().nonnegative().optional(),
+  // Random per content write, so two tabs that reach the same counter (for
+  // example both resetting unreadable data) still conflict instead of colliding.
+  writeToken: z.string().max(100).optional(),
 });
+
+/** Shown when another tab saved newer work after this tab last loaded or wrote. */
+export const STALE_WORKSPACE_MESSAGE =
+  'This handover changed in another tab — reload to see the latest. Editing here is paused; text you typed is kept.';
+
+// The write counter and token this tab (document) last loaded or wrote. Every
+// save is a compare-and-set against them, so a stale tab can never replace newer work.
+let knownWriteCount = 0;
+let knownWriteToken: string | undefined;
+// The exact valid saved text this tab last loaded or wrote, and its handovers
+// as JSON in the form this tab holds them (after the load-time recheck of
+// interpretations). Saved text equal to it needs no new validation.
+let knownRaw: string | null = null;
+let knownHandoversJson: string | null = null;
+// The last saved text read by `readWorkspace` and its result. Reading the same
+// text again (React may run the initial read twice) returns the same rechecked
+// handovers, so their recheck events match the content remembered as saved.
+let lastRead: { raw: string; snapshot: WorkspaceSnapshot } | null = null;
+// The saved text this tab last saw, readable or not. A reset only replaces
+// unreadable data that the person was actually shown.
+let seenRaw: string | null = null;
+// Other in-memory handover objects already validated by a save, and their
+// validated form. React state is never mutated in place, so an unchanged
+// object needs no second validation.
+const validatedHandovers = new WeakMap<HandoverState, HandoverState>();
+
+function storedWriteCount(raw: string): number {
+  const value = (JSON.parse(raw) as { writeCount?: unknown }).writeCount;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+interface WriteStamp {
+  count: number;
+  token: string | undefined;
+}
+
+function stampOf(data: { writeCount?: unknown; writeToken?: unknown }): WriteStamp {
+  const count = data.writeCount;
+  return {
+    count: typeof count === 'number' && Number.isInteger(count) && count >= 0 ? count : 0,
+    token: typeof data.writeToken === 'string' ? data.writeToken : undefined,
+  };
+}
+
+function storedWriteStamp(raw: string): WriteStamp {
+  return stampOf(JSON.parse(raw) as { writeCount?: unknown; writeToken?: unknown });
+}
+
+function isNewer(raw: string): boolean {
+  if (raw === knownRaw) return false;
+  const stamp = storedWriteStamp(raw);
+  return stamp.count !== knownWriteCount || stamp.token !== knownWriteToken;
+}
+
+function remember(raw: string, handoversJson: string, stamp: WriteStamp) {
+  knownWriteCount = stamp.count;
+  knownWriteToken = stamp.token;
+  knownRaw = raw;
+  seenRaw = raw;
+  knownHandoversJson = handoversJson;
+}
+
+/**
+ * True when saved data exists and another tab has written it since this tab last
+ * loaded or saved. Unreadable or unavailable storage is reported by the existing
+ * recovery paths instead.
+ */
+export function hasNewerSavedWorkspace(): boolean {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw !== null && isNewer(raw);
+  } catch {
+    return false;
+  }
+}
 
 export interface WorkspaceSnapshot {
   handovers: HandoverState[];
@@ -19,14 +99,18 @@ export interface WorkspaceSnapshot {
   warning: string | null;
 }
 
-/** Pure validation used for both local persistence and an explicit backup restore. */
-export function parseWorkspaceBackup(raw: string): WorkspaceSnapshot {
+/**
+ * Pure validation used for both local persistence and an explicit backup restore.
+ * A backup file is untrusted (`origin: 'import'`); this browser's own saved data
+ * is the default.
+ */
+export function parseWorkspaceBackup(raw: string, options: RestoreOptions = {}): WorkspaceSnapshot {
   if (raw.length > MAX_WORKSPACE_CHARACTERS)
     throw new Error('This workspace backup exceeds the supported 4 million character limit.');
   const data = workspaceSchema.parse(JSON.parse(raw));
   if (new Set(data.handovers.map((handover) => handover.id)).size !== data.handovers.length)
     throw new Error('This workspace backup contains duplicate handover identifiers.');
-  const handovers = data.handovers.map(restoreHandover);
+  const handovers = data.handovers.map((handover) => restoreHandover(handover, options));
   return {
     handovers,
     activeId: handovers.some((handover) => handover.id === data.activeId)
@@ -41,7 +125,7 @@ export async function importWorkspaceBackup(file: File): Promise<WorkspaceSnapsh
   if (file.size > MAX_WORKSPACE_FILE_BYTES)
     throw new Error('Choose a BolRelay workspace backup no larger than 12 MB.');
   try {
-    return parseWorkspaceBackup(await file.text());
+    return parseWorkspaceBackup(await file.text(), { origin: 'import' });
   } catch {
     throw new Error(
       'This is not a valid BolRelay workspace backup. Your current workspace has not changed.',
@@ -51,53 +135,183 @@ export async function importWorkspaceBackup(file: File): Promise<WorkspaceSnapsh
 
 /** Explicit replacement only: validate the complete backup before touching saved data. */
 export function restoreWorkspaceBackup(raw: string): WorkspaceSnapshot {
-  const restored = parseWorkspaceBackup(raw);
-  const serialized = JSON.stringify({
-    version: 1,
-    handovers: restored.handovers,
-    activeId: restored.activeId,
-  });
+  const restored = parseWorkspaceBackup(raw, { origin: 'import' });
+  // A restore is an explicit replacement; it always advances past every counter
+  // seen so far so other open tabs become stale. The backup's own counter is ignored.
+  let previous = knownWriteCount;
+  try {
+    const current = localStorage.getItem(STORAGE_KEY);
+    if (current) previous = Math.max(previous, storedWriteCount(current));
+  } catch {
+    // Unreadable original data is being explicitly replaced.
+  }
+  const stamp = { count: previous + 1, token: newToken() };
+  const handoversJson = JSON.stringify(restored.handovers);
+  const serialized = serializeWorkspace(handoversJson, restored.activeId, stamp);
   if (serialized.length > MAX_WORKSPACE_CHARACTERS)
     throw new Error(
       'This restored workspace is too large to save. Your current workspace has not changed.',
     );
   localStorage.setItem(STORAGE_KEY, serialized);
+  remember(serialized, handoversJson, stamp);
   return restored;
 }
 
+function newToken(): string {
+  return crypto.randomUUID();
+}
+
+function serializeWorkspace(
+  handoversJson: string,
+  activeId: string | null,
+  stamp: WriteStamp,
+): string {
+  return `{"version":1,"handovers":${handoversJson},"activeId":${JSON.stringify(activeId)},"writeCount":${stamp.count}${
+    stamp.token === undefined ? '' : `,"writeToken":${JSON.stringify(stamp.token)}`
+  }}`;
+}
+
+/** Saved data is readable when its shape and cross-record integrity are valid. */
+function readable(raw: string): boolean {
+  try {
+    parseWorkspaceBackup(raw, { revalidate: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validates in-memory handovers for saving. A state that came out of
+ * `restoreHandover` (load, import, in-app commit) or an earlier save is reused
+ * by reference; any other object is fully restored once.
+ */
+function validatedForSave(handovers: HandoverState[]): HandoverState[] {
+  return handovers.map((handover) => {
+    if (isRestoredHandover(handover)) return handover;
+    const known = validatedHandovers.get(handover);
+    if (known) return known;
+    const valid = restoreHandover(handover);
+    validatedHandovers.set(handover, valid);
+    return valid;
+  });
+}
+
+const UNREADABLE_WARNING =
+  'Saved data could not be read. The original data is still in this browser. Export or clear it before saving a new workspace.';
+
+/** Loads saved data and records its write counter as this tab's baseline. */
 export function readWorkspace(): WorkspaceSnapshot {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+    seenRaw = raw;
     if (!raw) return { handovers: [], activeId: null, warning: null };
-    return parseWorkspaceBackup(raw);
+    const snapshot = lastRead?.raw === raw ? lastRead.snapshot : parseWorkspaceBackup(raw);
+    lastRead = { raw, snapshot };
+    const data = JSON.parse(raw) as { writeCount?: unknown; writeToken?: unknown };
+    // The rechecked reading counts as the content saved under this counter: it
+    // is derived from that data alone, so saving it is not new work and must
+    // not make other tabs (which derive the same reading) stale.
+    remember(raw, JSON.stringify(snapshot.handovers), stampOf(data));
+    return snapshot;
   } catch {
     return {
       handovers: [],
       activeId: null,
-      warning:
-        'Saved data could not be read. The original data is still in this browser. Export or clear it before saving a new workspace.',
+      warning: UNREADABLE_WARNING,
     };
   }
 }
 
+/**
+ * Compare-and-set save: writes only when the saved write counter still equals the
+ * one this tab last loaded or wrote. A conflict leaves saved data untouched.
+ */
 export function writeWorkspace(
   handovers: HandoverState[],
   activeId: string | null,
-): { ok: boolean; error?: string } {
+): { ok: boolean; error?: string; conflict?: boolean; unreadable?: boolean } {
   try {
-    const current = readWorkspace();
-    if (current.warning) return { ok: false, error: current.warning };
-    const data = workspaceSchema.parse({ version: 1, handovers, activeId });
-    data.handovers = data.handovers.map(restoreHandover);
-    if (new Set(handovers.map((h) => h.id)).size !== handovers.length)
-      throw new Error('Duplicate handover identifiers.');
-    const serialized = JSON.stringify(data);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    let savedHandovers: string | null = null;
+    if (raw) {
+      // Text this tab already read or wrote was validated then; anything else is
+      // checked for shape and integrity only (no reinterpretation) before use.
+      if (raw !== knownRaw && !readable(raw)) {
+        seenRaw = raw;
+        return { ok: false, unreadable: true, error: UNREADABLE_WARNING };
+      }
+      if (isNewer(raw)) return { ok: false, conflict: true, error: STALE_WORKSPACE_MESSAGE };
+      // Same counter and token: the saved text is this tab's known content, or
+      // another tab's recheck of that same data written without advancing the
+      // counter (two tabs opened together); either way nothing new to keep.
+      savedHandovers =
+        knownHandoversJson ?? JSON.stringify((JSON.parse(raw) as { handovers: unknown }).handovers);
+    }
+    const { content, handoversJson } = prepare(handovers, activeId);
+    // Only a change to handover content advances the counter. Selecting another
+    // handover or reopening a tab must not make other tabs stale.
+    const stamp =
+      savedHandovers === handoversJson
+        ? { count: knownWriteCount, token: knownWriteToken }
+        : { count: knownWriteCount + 1, token: newToken() };
+    const serialized = serializeWorkspace(handoversJson, content.activeId, stamp);
+    if (serialized.length > MAX_WORKSPACE_CHARACTERS)
+      return {
+        ok: false,
+        error: 'This workspace is full. Export and remove older handovers to keep saving.',
+      };
+    if (serialized !== raw) localStorage.setItem(STORAGE_KEY, serialized);
+    remember(serialized, handoversJson, stamp);
+    return { ok: true };
+  } catch {
+    return {
+      ok: false,
+      error:
+        'Changes are currently only in memory. Browser storage is unavailable or full; export this handover before closing.',
+    };
+  }
+}
+
+function prepare(handovers: HandoverState[], activeId: string | null) {
+  if (handovers.length > 40 || (activeId !== null && typeof activeId !== 'string'))
+    throw new Error('Unsupported workspace.');
+  if (new Set(handovers.map((h) => h.id)).size !== handovers.length)
+    throw new Error('Duplicate handover identifiers.');
+  const content = { handovers: validatedForSave(handovers), activeId };
+  return { content, handoversJson: JSON.stringify(content.handovers) };
+}
+
+/**
+ * User-initiated recovery: replaces unreadable saved data with the handovers on
+ * screen. Never called automatically on parse failure. Refuses with
+ * `newer: true`, leaving saved data untouched, when the saved data is readable
+ * now or differs from what this tab last saw (another tab repaired or replaced
+ * it); reload instead. The new counter advances past every counter seen so far.
+ */
+export function resetSavedWorkspace(
+  handovers: HandoverState[],
+  activeId: string | null,
+): { ok: boolean; newer?: boolean; error?: string } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw !== null && (raw !== seenRaw || readable(raw))) return { ok: false, newer: true };
+    let previous = knownWriteCount;
+    try {
+      if (raw !== null) previous = Math.max(previous, storedWriteCount(raw));
+    } catch {
+      // Unreadable data is being explicitly replaced.
+    }
+    const { content, handoversJson } = prepare(handovers, activeId);
+    const stamp = { count: previous + 1, token: newToken() };
+    const serialized = serializeWorkspace(handoversJson, content.activeId, stamp);
     if (serialized.length > MAX_WORKSPACE_CHARACTERS)
       return {
         ok: false,
         error: 'This workspace is full. Export and remove older handovers to keep saving.',
       };
     localStorage.setItem(STORAGE_KEY, serialized);
+    remember(serialized, handoversJson, stamp);
     return { ok: true };
   } catch {
     return {

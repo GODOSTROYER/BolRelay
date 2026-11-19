@@ -1,5 +1,6 @@
 import { createHandover } from './engine';
 import { parseTranscript } from './parser';
+import { stampInterpretation } from './rulesVersion';
 import type { HandoverState, Language } from './types';
 
 export const DEMO_TRANSCRIPTS = {
@@ -36,14 +37,37 @@ export const DEMO_TRANSCRIPTS = {
   },
 } satisfies Record<Language, Record<string, string>>;
 
-/** Synthetic scenario: no real customers, parcels, recordings, or dispatch integration. */
-export function createDemoHandover(language: Language = 'en-IN'): HandoverState {
+/** The two-language example: a Hindi instruction checked against a Marathi read-back. */
+export const CROSS_LANGUAGE_DEMO = {
+  outgoing: 'hi-IN',
+  incoming: 'mr-IN',
+} as const satisfies Record<'outgoing' | 'incoming', Language>;
+
+const DEMO_LANGUAGE_NAMES: Record<Language, string> = {
+  'en-IN': 'English',
+  'hi-IN': 'Hindi',
+  'mr-IN': 'Marathi',
+};
+
+/**
+ * Synthetic scenario: no real customers, parcels, recordings, or dispatch integration.
+ * The outgoing instruction is spoken in `language`; the incoming worker answers in
+ * `incomingLanguage` (the same language unless a two-language example is requested).
+ */
+export function createDemoHandover(
+  language: Language = 'en-IN',
+  incomingLanguage: Language = language,
+): HandoverState {
   const state = createHandover({
     id: `demo-${crypto.randomUUID()}`,
-    title: 'Dispatch handover',
+    title:
+      incomingLanguage === language
+        ? 'Dispatch handover'
+        : `Dispatch handover · ${DEMO_LANGUAGE_NAMES[language]} → ${DEMO_LANGUAGE_NAMES[incomingLanguage]}`,
     outgoingName: 'Asha',
     incomingName: 'Ravi',
     language,
+    participantLanguages: { outgoing: language, incoming: incomingLanguage },
     items: [
       {
         id: 'NAGPUR',
@@ -88,7 +112,7 @@ export function createDemoHandover(language: Language = 'en-IN'): HandoverState 
   });
   return {
     ...state,
-    utterances: [{ ...outgoing, createdAt: state.createdAt }],
+    utterances: [{ ...stampInterpretation(outgoing), createdAt: state.createdAt }],
     items: state.items.map((item) => ({
       ...item,
       evidence: outgoing.claims

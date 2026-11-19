@@ -32,6 +32,8 @@ interface Props {
   onSubmit: () => void;
   onAudio: (audio: CapturedAudio | null) => void;
   scope?: string;
+  /** The question being answered, repeated beside the field while it is on screen. */
+  scopeQuestion?: string;
   clearScope: () => void;
   onExample?: (kind: 'missed' | 'correct') => void;
   contextKey?: string;
@@ -49,6 +51,7 @@ export function VoiceComposer({
   onSubmit,
   onAudio,
   scope,
+  scopeQuestion,
   clearScope,
   onExample,
   contextKey = '',
@@ -57,6 +60,22 @@ export function VoiceComposer({
   const [languageFocus, setLanguageFocus] = useState(0);
   const [audioUrl, setAudioUrl] = useState('');
   const textArea = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    // When an on-screen keyboard opens over the focused field, scroll it (and the
+    // question beside it) back above the keyboard and the sticky actions.
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const keepVisible = () =>
+      window.requestAnimationFrame(() => {
+        const inset = parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--keyboard-inset'),
+        );
+        if (inset > 0 && document.activeElement === textArea.current)
+          textArea.current?.scrollIntoView({ block: 'nearest' });
+      });
+    viewport.addEventListener('resize', keepVisible);
+    return () => viewport.removeEventListener('resize', keepVisible);
+  }, []);
   const languageButton = useRef<HTMLButtonElement>(null);
   const languageOptions = useRef<(HTMLButtonElement | null)[]>([]);
   const languageValues = Object.keys(LANGUAGE_LABELS) as Language[];
@@ -213,9 +232,15 @@ export function VoiceComposer({
       </div>
       {scope && (
         <div className="scope-note">
-          <span>
-            {ui(language, 'clarifyTitle')}: <strong>{scope}</strong>
-          </span>
+          {scopeQuestion ? (
+            <span id={`${role}-scope-question`} data-testid="scope-question">
+              {scopeQuestion}
+            </span>
+          ) : (
+            <span>
+              {ui(language, 'clarifyTitle')}: <strong>{scope}</strong>
+            </span>
+          )}
           <button
             type="button"
             disabled={voice.busy || busy}
@@ -235,6 +260,8 @@ export function VoiceComposer({
         data-testid={`${role}-transcript`}
         value={text}
         lang={language}
+        aria-describedby={scope && scopeQuestion ? `${role}-scope-question` : undefined}
+        onFocus={(event) => event.currentTarget.scrollIntoView({ block: 'nearest' })}
         onChange={(event) => {
           setText(event.target.value);
           setAudioUrl('');

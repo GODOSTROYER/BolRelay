@@ -80,6 +80,34 @@ The final artifact contains **thirteen distinct PNG views**: six full-board stat
 
 The local connected browser was unavailable in this environment, so rendered verification and the production HTTP smoke test ran in GitHub Actions. Real microphone quality, speech-provider recognition, actual synthesized audio, live model quality, and worker benefit remain unverified. The mock audio case uses synthetic audio to check application wiring; no recorded worker session or provider benchmark is implied. The earlier results below remain a historical record of the earlier code.
 
+## Checklist verification wave (18 November 2026)
+
+This wave addressed the remaining verification checklist in [BUILD_PROGRESS.md](BUILD_PROGRESS.md). Every code item was first reproduced as a failing test. Changes were reviewed adversarially in four rounds by independent reviewers who ran their own probes; each round's confirmed findings were fixed and re-verified. Representative defects found and fixed:
+
+- "thirty eight parcels", "एकशे आठ" (108) and a second clock phrase ("…तीन बजे के बाद शाम आठ बजे…") were read as a quantity of 8.
+- "Send all parcels except J1" was read as an instruction for J1; a second prerequisite ("…and payment is received") was dropped.
+- Hindi/Marathi negations (न भेजें, थांबवू नका, नहीँ, नाय) and English "no longer hold" were read as the positive action.
+- A model claim could borrow a time or quantity from another item's clause; the planned owner decided which owner could be heard.
+- Approvals made under earlier parser rules survived reload; a stale tab silently overwrote a newer revision and handover.
+- Short clarification answers looped; later, "8 PM" answered "How many?" and "address doesn't need to be confirmed" became "address confirmed".
+
+Structural safeguards added: a closed-world check (any word the rules cannot account for makes the clause uncertain), a count accepted only next to its item or unit, a model guard that treats every local issue as blocking and compares every field, revalidation at every trust boundary (rules version 6), compare-and-set browser saves, and a full-restatement rule for short answers after unexplained wording.
+
+Verified locally on 18 November 2026 (Node.js 22, Playwright Chromium) at the merged branch head:
+
+| Check                 | Result                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| TypeScript            | Passed                                                                                                       |
+| Vitest                | **1,071 passed** across 31 files                                                                             |
+| Production bundle     | Passed                                                                                                       |
+| Production HTTP smoke | Passed; zero external model calls                                                                            |
+| Chromium              | **59 passed**                                                                                                |
+| Held-out evaluation   | 0/94 safety failures; 32/97 cases strict, 50/97 lenient; 62/123 false alarms (`npx tsx eval/heldout/run.ts`) |
+
+The same checks passed in GitHub Actions on [pull request #2](https://github.com/GODOSTROYER/BolRelay/pull/2) ([run 44349160534](https://github.com/GODOSTROYER/BolRelay/actions/runs/44349160534)). The held-out set was written by an AI model from the specification without reading the parser; one case (a Hindi completed-work statement) informed a fix and is no longer unseen. It is not native-speaker labelling. Baseline on the original code was 4/94 safety failures and 63/123 false alarms.
+
+Remaining limits: the rule grammar is not closed (each review round found new phrasing classes; unrecognised wording now falls to uncertainty, but combinations of individually supported words can still change meaning); about half of correct held-out read-backs are flagged; Devanagari and Latin spellings of the same owner name do not match; mobile behaviour was verified only in viewport emulation; microphone capture, speech recognition, live model quality and worker benefit remain unmeasured.
+
 ## Earlier execution record
 
 Verified on 17 November 2026 in the private repository's GitHub Actions runner, using Node.js 24 and Playwright Chromium:

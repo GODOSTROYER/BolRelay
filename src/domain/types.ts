@@ -45,6 +45,12 @@ export interface ParsedClaim {
   owner?: string | null;
   uncertainFields: ClaimField[];
   evidence: Evidence;
+  /**
+   * A short targeted answer completes the incoming worker's own earlier read-back
+   * claim for the same item and revision. Only `fields` come from this answer;
+   * every other field is copied unchanged from the referenced earlier claim.
+   */
+  basis?: { utteranceId: string; claimId: string; fields: ClaimField[] };
 }
 
 export interface ParseIssue {
@@ -64,6 +70,8 @@ export interface ParsedTranscript {
   /** Explicit intent of an incoming statement. Legacy recordings may omit this metadata. */
   readbackMode?: ReadbackMode;
   scopeItemIds?: string[];
+  /** The single field a targeted clarification asked about, when one was asked. */
+  answerField?: ClaimField;
   /** The item revisions used during extraction; prevents late results from approving a new plan. */
   itemRevisions: Record<string, number>;
   claims: ParsedClaim[];
@@ -73,6 +81,18 @@ export interface ParsedTranscript {
 }
 
 export interface Utterance extends ParsedTranscript {
+  createdAt: string;
+  /** Interpretation rules version that produced/validated this record; absent means outdated. */
+  rulesVersion?: number;
+}
+
+/** A stored outgoing instruction that reads differently under current interpretation rules. */
+export interface SourceReview {
+  itemId: string;
+  itemRevision: number;
+  utteranceId: string;
+  /** The outgoing participant reviewed the unchanged plan. Kept so the same source is not re-flagged. */
+  reviewed: boolean;
   createdAt: string;
 }
 
@@ -126,10 +146,12 @@ export interface HandoverState {
   confirmations: Record<string, Confirmation>;
   /** A system migration notice, independent of participant acknowledgements or storage errors. */
   recheckNotice?: {
-    reason: 'legacy-interpretation';
+    reason: 'legacy-interpretation' | 'interpretation-rules-changed';
     itemIds: string[];
     createdAt: string;
   };
+  /** Plan items whose source wording needs outgoing review; the plan itself is never rewritten. */
+  sourceReview?: SourceReview[];
   events: HandoverEvent[];
   createdAt: string;
   updatedAt: string;
@@ -195,6 +217,8 @@ export interface ParseTranscriptInput {
   utteranceId?: string;
   /** For a targeted clarification; references outside this scope remain untrusted. */
   scopeItemIds?: string[];
+  /** The field the clarification question asked for (single-item scope only). */
+  answerField?: ClaimField;
 }
 
 export interface SubmitReadbackOptions {
@@ -203,5 +227,7 @@ export interface SubmitReadbackOptions {
   scopeItemIds?: string[];
   /** Unscoped submissions recheck the entire board. Targeted replies replace only their scope. */
   mode?: ReadbackMode;
+  /** The field the current clarification question asked for (single-item scope only). */
+  answerField?: ClaimField;
   at?: string;
 }
