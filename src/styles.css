@@ -2934,3 +2934,219 @@ strong {
     scroll-margin-bottom: calc(8px + var(--keyboard-inset, 0px));
   }
 }
+
+/* Talk mode: a hands-free speak → listen → check loop for the incoming worker. */
+.talk-entry {
+  margin: 0 0 14px;
+}
+.button.talk-start {
+  width: 100%;
+  min-height: 60px;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  white-space: normal;
+  text-align: left;
+}
+.talk-start > svg {
+  flex-shrink: 0;
+}
+.talk-start span {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.talk-start strong {
+  font-size: 17px;
+  line-height: 1.35;
+}
+.talk-start small {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  opacity: 0.92;
+}
+.talk-notice {
+  margin-bottom: 0;
+}
+.talk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: #fbf8f5;
+  color: var(--ink);
+  padding: env(safe-area-inset-top, 0px) 0 0;
+}
+.talk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+.talk-bar h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.talk-bar h2:focus {
+  outline: none;
+}
+.talk-stop {
+  min-height: 44px;
+  padding-inline: 16px;
+}
+.talk-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 28px 20px 20px;
+  text-align: center;
+}
+.talk-orb {
+  position: relative;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--accent);
+  border: 2px solid #f4d2c1;
+  box-shadow: 0 6px 20px #e9622514;
+}
+.talk-overlay.is-listening .talk-orb {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.talk-overlay.is-listening .talk-orb::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 3px solid #e962254d;
+  animation: talk-pulse 1.6s ease-out infinite;
+}
+.talk-overlay.is-checking .talk-orb,
+.talk-overlay.is-paused .talk-orb {
+  color: var(--muted);
+  border-color: var(--border);
+  box-shadow: none;
+}
+.talk-overlay.is-complete .talk-orb {
+  background: var(--green-soft);
+  border-color: #a8d9c9;
+  color: var(--green);
+}
+@keyframes talk-pulse {
+  from {
+    transform: scale(0.94);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+}
+.talk-state {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.talk-overlay.is-checking .talk-state,
+.talk-overlay.is-paused .talk-state {
+  color: var(--muted);
+}
+.talk-prompt {
+  font-size: 23px;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  overflow-wrap: anywhere;
+}
+.talk-heard {
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.talk-heard figcaption {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.talk-heard blockquote {
+  margin: 4px 0 0;
+  font-size: 22px;
+  line-height: 1.5;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.talk-note {
+  font-size: 14px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.talk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: #fff;
+}
+.talk-actions:empty {
+  display: none;
+}
+.talk-actions .button {
+  flex: 1 1 200px;
+  max-width: 420px;
+  min-height: 56px;
+  font-size: 17px;
+  border-radius: 12px;
+  white-space: normal;
+}
+@media (max-width: 520px) {
+  .talk-body {
+    padding: 20px 16px 16px;
+    gap: 12px;
+  }
+  .talk-orb {
+    width: 108px;
+    height: 108px;
+  }
+  .talk-prompt {
+    font-size: 20px;
+  }
+  .talk-heard blockquote {
+    font-size: 20px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .talk-overlay.is-listening .talk-orb::after {
+    animation: none !important;
+    opacity: 0.6;
+  }
+}

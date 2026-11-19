@@ -67,6 +67,7 @@ import { Modal, publishDialogNotice } from './components/Modal';
 import { VoiceComposer } from './components/VoiceComposer';
 import { SpokenHandover, type SpokenHandoverDraft } from './components/SpokenHandover';
 import { RecipientGuide } from './components/RecipientGuide';
+import { TalkMode } from './components/TalkMode';
 import { currentQuestion, ui } from './lib/language';
 import type { CapturedAudio } from './hooks/useVoiceCapture';
 import './styles.css';
@@ -434,16 +435,26 @@ export default function App() {
     return true;
   };
 
-  const checkTranscript = async () => {
+  /**
+   * Checks the composer's words, or words heard in talk mode (always the incoming
+   * worker's, scoped to the item talk mode asked about). True when a read-back was recorded.
+   */
+  const checkTranscript = async (heard?: {
+    text: string;
+    audio: CapturedAudio | null;
+    scope: string | null;
+  }): Promise<boolean> => {
     const targetId = active.id;
-    const text = (role === 'incoming' ? incomingText : outgoingText).trim();
-    if (!text || busy) return;
+    const speaker = heard ? 'incoming' : role;
+    const itemScope = heard ? heard.scope : scope;
+    const text = (heard ? heard.text : speaker === 'incoming' ? incomingText : outgoingText).trim();
+    if (!text || busy) return false;
     setBusy(true);
     setError('');
-    const audio = pendingAudio;
-    const readbackScope = role === 'incoming' && scope ? [scope] : undefined;
+    const audio = heard ? heard.audio : pendingAudio;
+    const readbackScope = speaker === 'incoming' && itemScope ? [itemScope] : undefined;
     // The local rules can accept a short answer to the one detail currently asked.
-    const scopedResult = comparisons.find((result) => result.itemId === scope);
+    const scopedResult = comparisons.find((result) => result.itemId === itemScope);
     const answerField =
       readbackScope && scopedResult && mode === 'local'
         ? clarificationField(scopedResult)
@@ -452,8 +463,8 @@ export default function App() {
       const parsed = await analyzeTranscript(
         {
           text,
-          role,
-          language,
+          role: speaker,
+          language: heard ? active.participantLanguages.incoming : language,
           items: active.items,
           utteranceId: crypto.randomUUID(),
           ...(readbackScope ? { scopeItemIds: readbackScope } : {}),
@@ -463,14 +474,15 @@ export default function App() {
       );
       if (targetId !== activeIdRef.current) {
         setToast('The interpretation was set aside because you switched handovers.');
-        return;
+        return false;
       }
       if (parsed.role === 'outgoing') {
         if (targetId !== activeIdRef.current) {
           setToast('The spoken instruction result was set aside because you switched handovers.');
-          return;
+          return false;
         }
         setDialog({ kind: 'instructions', parsed, targetId });
+        return false;
       } else {
         if (
           commit(targetId, (state) =>
@@ -492,10 +504,13 @@ export default function App() {
           setCaptureRevision((value) => value + 1);
           // The guided view moves focus to its updated heading instead.
           setToast(guided ? '' : 'Read-back checked against the current instructions.');
+          return true;
         }
       }
+      return false;
     } catch (cause) {
       setError(messageOf(cause));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -617,7 +632,7 @@ export default function App() {
     )
       setToast(guided ? '' : 'Item confirmed for its current instruction.');
   };
-  const confirmAll = () => {
+  const confirmAll = (): boolean => {
     if (
       commit(active.id, (state) =>
         state.items.reduce(
@@ -630,7 +645,12 @@ export default function App() {
       )
     )
       setToast('All current items have a matching, confirmed read-back.');
+    else return false;
+    return true;
   };
+  // Talk mode always calls the latest closures, never those of the render it started in.
+  const talkActions = useRef({ checkTranscript, confirmAll });
+  talkActions.current = { checkTranscript, confirmAll };
   const selectHandover = (id: string) => {
     setActiveId(id);
     setView('handover');
@@ -1016,6 +1036,22 @@ export default function App() {
                     onConfirm={confirmOne}
                     onReview={() => setGuided(false)}
                     busy={busy}
+                    talk={
+                      <TalkMode
+                        language={active.participantLanguages.incoming}
+                        contextKey={`${active.id}:${active.items.map((item) => `${item.id}:${item.revision}`).join(',')}`}
+                        current={() =>
+                          workspaceRef.current.find((handover) => handover.id === active.id)
+                        }
+                        submit={(text, audio, itemScope) =>
+                          talkActions.current.checkTranscript({ text, audio, scope: itemScope })
+                        }
+                        confirm={() => talkActions.current.confirmAll()}
+                        blocked={staleWorkspace}
+                        disabled={busy}
+                        hidden={complete}
+                      />
+                    }
                   />
                 )}
                 <VoiceComposer

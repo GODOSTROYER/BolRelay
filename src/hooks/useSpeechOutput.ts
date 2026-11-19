@@ -47,8 +47,12 @@ export function useSpeechOutput(language: Language, contextKey = '') {
     }
   }, []);
 
+  /**
+   * `onDone` runs once when this utterance finishes ('ended') or fails or stalls
+   * ('failed'). It never runs after `stop()`, a context change, or another speak action.
+   */
   const speak = useCallback(
-    (words: string) => {
+    (words: string, onDone?: (outcome: 'ended' | 'failed') => void) => {
       const text = words.trim();
       if (!text) return false;
       const selected = synthesis ? matchingVoice(synthesis.getVoices(), language) : null;
@@ -109,21 +113,26 @@ export function useSpeechOutput(language: Language, contextKey = '') {
           setError(
             'Spoken playback did not finish. Try one item at a time or use the displayed text.',
           );
+          onDone?.('failed');
         }, 120_000);
       };
       utterance.onend = () => {
-        if (current()) release();
+        if (!current()) return;
+        release();
+        onDone?.('ended');
       };
       utterance.onerror = (event) => {
         if (!current()) return;
         release();
         if (event.error !== 'canceled' && event.error !== 'interrupted')
           setError('Spoken playback failed. Try again or use the displayed text.');
+        onDone?.('failed');
       };
       deadline = setTimeout(() => {
         if (!current()) return;
         release();
         setError('The selected voice did not start. Try again or use the displayed text.');
+        onDone?.('failed');
       }, 5_000);
       try {
         synthesis.speak(utterance);

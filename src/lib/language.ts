@@ -189,6 +189,77 @@ const copy = {
     'आपकी बात का कुछ हिस्सा जाँचा नहीं जा सका, इसलिए एक शब्द से यह ठीक नहीं होगा। इस सामान का पूरा निर्देश फिर से बोलें: क्या करेंगे, कितने, कब, और पहले क्या होना ज़रूरी है।',
     'तुम्ही सांगितलेला काही भाग तपासता आला नाही, म्हणून एका शब्दाने हे सुटणार नाही. या वस्तूची संपूर्ण सूचना पुन्हा सांगा: काय कराल, किती, केव्हा, आणि आधी काय व्हायला हवे.',
   ],
+  // Talk mode: the hands-free speak → listen → check loop (src/components/TalkMode.tsx).
+  talkStart: ['Talk it through', 'बोलकर पूरा करें', 'बोलून पूर्ण करा'],
+  talkStartHelp: [
+    'Hands-free: the app asks out loud, you answer out loud.',
+    'बिना लिखे-पढ़े: ऐप बोलकर पूछेगा, आप बोलकर जवाब दें।',
+    'न लिहिता-वाचता: ॲप बोलून विचारेल, तुम्ही बोलून उत्तर द्या.',
+  ],
+  talkTitle: ['Talk mode', 'बोलकर जाँच', 'बोलून तपासणी'],
+  talkReadback: [
+    'Tell me in your own words what you will do with each item.',
+    'अपने शब्दों में बताइए, हर सामान के साथ आप क्या करेंगे।',
+    'स्वतःच्या शब्दांत सांगा, प्रत्येक वस्तूचे तुम्ही काय कराल.',
+  ],
+  talkConfirmIntro: ['You said:', 'आपने बताया:', 'तुम्ही सांगितले:'],
+  talkConfirmAsk: [
+    'If this is right, say “confirm”. To change anything, say your plan again.',
+    'अगर यह सही है, तो “पक्का” बोलिए। कुछ बदलना हो, तो अपनी योजना फिर से बताइए।',
+    'हे बरोबर असेल तर “नक्की” म्हणा. काही बदलायचे असल्यास तुमची योजना पुन्हा सांगा.',
+  ],
+  talkConfirmHint: [
+    'Say “confirm”, or tap the button.',
+    '“पक्का” बोलिए, या बटन दबाइए।',
+    '“नक्की” म्हणा, किंवा बटण दाबा.',
+  ],
+  talkAskSender: [
+    'This is still unclear after several tries. Please ask the sender to go through this item with you.',
+    'कई बार कोशिश के बाद भी यह साफ़ नहीं है। कृपया काम सौंपने वाले के साथ यह सामान एक बार जाँच लीजिए।',
+    'अनेक प्रयत्नांनंतरही हे स्पष्ट नाही. कृपया काम सोपवणाऱ्यासोबत ही वस्तू एकदा तपासा.',
+  ],
+  talkNoSpeech: [
+    'I did not hear anything. Please answer again.',
+    'कुछ सुनाई नहीं दिया। कृपया फिर से बोलिए।',
+    'काहीच ऐकू आले नाही. कृपया पुन्हा बोला.',
+  ],
+  talkPaused: [
+    'Paused. Nothing was heard.',
+    'रुका हुआ है। कुछ सुनाई नहीं दिया।',
+    'थांबले आहे. काहीच ऐकू आले नाही.',
+  ],
+  talkContinue: ['Tap to continue', 'आगे बढ़ने के लिए दबाइए', 'पुढे जाण्यासाठी दाबा'],
+  talkSpeaking: ['Listen', 'सुनिए', 'ऐका'],
+  talkListening: ['Speak now', 'अब बोलिए', 'आता बोला'],
+  talkChecking: ['Checking…', 'जाँच हो रही है…', 'तपासत आहे…'],
+  talkHeard: ['You said', 'आपने कहा', 'तुम्ही म्हणालात'],
+  talkDoneSpeaking: ['Done speaking', 'बोलना पूरा हुआ', 'बोलणे पूर्ण झाले'],
+  talkClose: ['Close', 'बंद करें', 'बंद करा'],
+  talkNoVoice: [
+    'This device has no voice for this language. Read the question on screen and answer out loud.',
+    'इस डिवाइस पर इस भाषा की आवाज़ नहीं है। सवाल स्क्रीन पर पढ़िए और बोलकर जवाब दीजिए।',
+    'या उपकरणावर या भाषेचा आवाज नाही. प्रश्न स्क्रीनवर वाचा आणि बोलून उत्तर द्या.',
+  ],
+  talkNoMic: [
+    'Talk mode needs the microphone. Allow it in your browser, or use Record and the text box below.',
+    'बोलकर पूरा करने के लिए माइक्रोफ़ोन चाहिए। ब्राउज़र में अनुमति दीजिए, या नीचे “बोलें” और लिखने की जगह इस्तेमाल कीजिए।',
+    'बोलून पूर्ण करण्यासाठी मायक्रोफोन हवा. ब्राउझरमध्ये परवानगी द्या, किंवा खालील “बोला” आणि लिहिण्याची जागा वापरा.',
+  ],
+  talkNoRecognition: [
+    'This browser cannot turn speech into words here. Use Record and the text box below.',
+    'यह ब्राउज़र यहाँ बोली को शब्दों में नहीं बदल सकता। नीचे “बोलें” और लिखने की जगह इस्तेमाल कीजिए।',
+    'हा ब्राउझर येथे बोलणे शब्दांत बदलू शकत नाही. खालील “बोला” आणि लिहिण्याची जागा वापरा.',
+  ],
+  talkFailed: [
+    'Talk mode stopped because the recording failed. Use Record and the text box below.',
+    'रिकॉर्डिंग नहीं हो सकी, इसलिए बोलकर जाँच रुक गई। नीचे “बोलें” और लिखने की जगह इस्तेमाल कीजिए।',
+    'रेकॉर्डिंग झाली नाही, म्हणून बोलून तपासणी थांबली. खालील “बोला” आणि लिहिण्याची जागा वापरा.',
+  ],
+  talkInterrupted: [
+    'Talk mode stopped because the handover or language changed. Start it again when ready.',
+    'काम या भाषा बदल गई, इसलिए बोलकर जाँच रुक गई। तैयार हों तो फिर से शुरू कीजिए।',
+    'काम किंवा भाषा बदलली, म्हणून बोलून तपासणी थांबली. तयार असाल तेव्हा पुन्हा सुरू करा.',
+  ],
 } as const;
 
 export type CopyKey = keyof typeof copy;

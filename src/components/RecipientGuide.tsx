@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowRight, Check, CircleHelp } from 'lucide-react';
 import { clarificationAttempts, clarificationField } from '../domain/engine';
+import { CLARIFICATION_ATTEMPT_LIMIT } from '../domain/talk';
 import type { HandoverState, ItemComparison, Language } from '../domain/types';
 import { currentQuestion, describeInstruction, ui } from '../lib/language';
 import { SpeakButton } from './SpeakButton';
 
-/** After this many unresolved answers to the same question, offer a way out instead of looping. */
-const CLARIFICATION_ATTEMPT_LIMIT = 3;
 const scrollMotion = (): ScrollBehavior =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 // Space to leave above a scrolled-to step, below a notification pinned to the top.
@@ -24,6 +23,7 @@ export function RecipientGuide({
   onConfirm,
   onReview,
   busy = false,
+  talk,
 }: {
   state: HandoverState;
   comparisons: ItemComparison[];
@@ -33,6 +33,8 @@ export function RecipientGuide({
   onConfirm: (id: string) => void;
   onReview?: () => void;
   busy?: boolean;
+  /** The hands-free talk mode entry, shown under the heading. */
+  talk?: ReactNode;
 }) {
   const heard = state.utterances.some((utterance) => utterance.role === 'incoming');
   const current =
@@ -161,6 +163,7 @@ export function RecipientGuide({
           )}
         </h2>
       </div>
+      {talk}
       <SpeakButton
         language={language}
         text={state.items.map((entry) => describeInstruction(entry, language)).join('\n')}

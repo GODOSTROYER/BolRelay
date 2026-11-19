@@ -30,6 +30,10 @@ export interface CapturedAudio {
   duration: number;
   /** Identifies a completed capture, not a stored domain utterance. */
   captureId?: string;
+  /** Speech recognition was unavailable, failed or did not finish for this capture. */
+  transcriptionFailed?: boolean;
+  /** The browser's speech-recognition error code for this capture, if any ("no-speech"). */
+  recognitionError?: string;
 }
 
 export type CaptureStatus = 'idle' | 'starting' | 'recording' | 'finalizing' | 'ready' | 'error';
@@ -49,6 +53,7 @@ interface CaptureSession {
   recorderDone: boolean;
   recognitionDone: boolean;
   transcriptionFailed: boolean;
+  recognitionError: string;
   settled: boolean;
   clock: ReturnType<typeof setInterval> | null;
   deadline: ReturnType<typeof setTimeout> | null;
@@ -166,6 +171,8 @@ export function useVoiceCapture(
         blob,
         duration: Math.max(0, ((session.stoppedAt ?? Date.now()) - session.startedAt) / 1000),
         captureId: String(session.startedAt) + '-' + session.id,
+        ...(session.transcriptionFailed ? { transcriptionFailed: true } : {}),
+        ...(session.recognitionError ? { recognitionError: session.recognitionError } : {}),
       });
       session.onText(text);
       if (!text && !session.transcriptionFailed)
@@ -262,6 +269,7 @@ export function useVoiceCapture(
       recorderDone: false,
       recognitionDone: !speechConstructor,
       transcriptionFailed: !speechConstructor,
+      recognitionError: '',
       settled: false,
       clock: null,
       deadline: null,
@@ -346,6 +354,7 @@ export function useVoiceCapture(
         if (!isCurrent(session)) return;
         session.transcriptionFailed = true;
         session.recognitionDone = true;
+        session.recognitionError = event.error;
         setError(
           event.error === 'not-allowed'
             ? 'Browser dictation was not allowed. Listen to the saved recording and type its transcript.'
