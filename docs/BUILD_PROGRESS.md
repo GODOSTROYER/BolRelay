@@ -1,6 +1,6 @@
 # BolRelay build progress
 
-Updated 18 November 2026. This checklist tracks the implementation wave following the critical submission review. Estimates are focused engineering effort, not scheduled delivery promises. Device access, provider access, user recruitment, and released competition rules are separate dependencies.
+Updated 19 November 2026. Start with the [handoff](HANDOFF.md) for the current state, branches and next steps. This checklist tracks the implementation wave following the critical submission review. Estimates are focused engineering effort, not scheduled delivery promises. Device access, provider access, user recruitment, and released competition rules are separate dependencies.
 
 ## Remaining GitHub verification checklist (18 November 2026)
 

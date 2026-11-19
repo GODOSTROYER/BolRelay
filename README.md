@@ -129,7 +129,7 @@ An existing Chromium can be selected with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
 
 See [validation status and scenarios](docs/VALIDATION.md) for exact executed results and limitations. The workflow saves browser evidence as an Actions artifact, without committing temporary screenshots or traces into source.
 
-See [the build checklist](docs/BUILD_PROGRESS.md) for completed repairs, open validation gates, and effort estimates.
+See [the handoff](docs/HANDOFF.md) for the current state, branches and next steps, and [the build checklist](docs/BUILD_PROGRESS.md) for completed repairs, open validation gates, and effort estimates.
 
 ## Project structure
 
